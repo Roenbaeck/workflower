@@ -1,0 +1,9 @@
+definition_version: 2
+entities:
+  edit_workflow:
+    type: streamlit
+    identifier: metadata.EDIT_WORKFLOW
+    title: "Workflow Editor"
+    main_file: edit_workflow.py
+    query_warehouse: COMPUTE_WH
+    stage: streamlit
