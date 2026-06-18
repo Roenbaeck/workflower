@@ -168,6 +168,16 @@ function renderScript(text, ctx, loopVars) {
             continue;
         }
 
+        // Expand inline directives on content lines BEFORE checking block directives.
+        // This prevents inline $/ if ... $/ endif on a content line from being
+        // mistaken for a block-level if.
+        if (RE_FOREACH_INLINE_EMBEDDED.test(line)) {
+            line = expandInlineForeach(line, ctx, loopVars);
+        }
+        if (RE_IF_INLINE_EMBEDDED.test(line)) {
+            line = expandInlineIfs(line, ctx, loopVars);
+        }
+
         var mIfInline = RE_IF_INLINE.exec(line);
         if (mIfInline) {
             var parts = splitInlineIfBody(mIfInline[1]);
@@ -235,13 +245,6 @@ function renderScript(text, ctx, loopVars) {
                 sb.push(renderScript(branchBody, ctx, loopVars));
             }
             continue;
-        }
-
-        if (RE_FOREACH_INLINE_EMBEDDED.test(line)) {
-            line = expandInlineForeach(line, ctx, loopVars);
-        }
-        if (RE_IF_INLINE_EMBEDDED.test(line)) {
-            line = expandInlineIfs(line, ctx, loopVars);
         }
 
         if (line.trim().length > 0) {

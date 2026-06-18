@@ -1,17 +1,17 @@
 {
-    "WORKFLOW":    "GolfDW_Load_Workflow",
-    "SYSTEM":      "GolfDW",
-    "SOURCE":      "Kaggle",
-    "WAREHOUSE":   "COMPUTE_WH",
+    "WORKFLOW": "GolfDW_Load_Workflow",
+    "SYSTEM": "GolfDW",
+    "SOURCE": "Kaggle",
+    "WAREHOUSE": "COMPUTE_WH",
     "TASK_TIMEOUT": 3600000,
-    "MAX_FAILURES":  3,
-    "CONFIG":       "{\"workflow\":\"GolfDW_Load_Workflow\",\"environment\":\"production\",\"source_path\":\"@golf_stage\"}",
-    "CF_ID":        null,
+    "MAX_FAILURES": 3,
+    "CONFIG": "{\"workflow\":\"GolfDW_Load_Workflow\",\"environment\":\"production\",\"source_path\":\"@golf_stage\"}",
+    "CF_ID": null,
     "TASKS": [
         {
-            "name":        "tsk_import_files",
-            "schedule":    "USING CRON 0 2 * * * UTC",
-            "is_root":     true,
+            "name": "tsk_import_files",
+            "schedule": "USING CRON 0 2 * * * UTC",
+            "is_root": true,
             "description": "Stage CSV files from external stage into raw tables",
             "steps": [
                 {
@@ -33,24 +33,34 @@
                     "type": "return_value",
                     "message": "import complete"
                 }
-            ]
+            ],
+            "state": "suspended"
         },
         {
-            "name":        "tsk_create_typed_tables",
+            "name": "tsk_create_typed_tables",
             "description": "Create typed tables from raw import",
-            "after":       [{"name": "tsk_import_files"}],
+            "after": [
+                {
+                    "name": "tsk_import_files"
+                }
+            ],
             "steps": [
                 {
                     "type": "proc",
                     "description": "Create destination tables",
                     "call": "golf_raw.sp_CreateTypedTables()"
                 }
-            ]
+            ],
+            "state": "suspended"
         },
         {
-            "name":        "tsk_load_players",
+            "name": "tsk_load_players",
             "description": "Load Player entities",
-            "after":       [{"name": "tsk_create_typed_tables"}],
+            "after": [
+                {
+                    "name": "tsk_create_typed_tables"
+                }
+            ],
             "steps": [
                 {
                     "type": "lineage",
@@ -71,12 +81,17 @@
                     "type": "return_value",
                     "message": "players loaded"
                 }
-            ]
+            ],
+            "state": "suspended"
         },
         {
-            "name":        "tsk_load_stats",
+            "name": "tsk_load_stats",
             "description": "Load Statistic entities",
-            "after":       [{"name": "tsk_create_typed_tables"}],
+            "after": [
+                {
+                    "name": "tsk_create_typed_tables"
+                }
+            ],
             "steps": [
                 {
                     "type": "lineage",
@@ -97,12 +112,20 @@
                     "type": "return_value",
                     "message": "stats loaded"
                 }
-            ]
+            ],
+            "state": "suspended"
         },
         {
-            "name":        "tsk_load_measurements",
+            "name": "tsk_load_measurements",
             "description": "Load Measurement entities (depends on Players + Stats)",
-            "after":       [{"name": "tsk_load_players"}, {"name": "tsk_load_stats"}],
+            "after": [
+                {
+                    "name": "tsk_load_players"
+                },
+                {
+                    "name": "tsk_load_stats"
+                }
+            ],
             "steps": [
                 {
                     "type": "lineage",
@@ -119,7 +142,8 @@
                     },
                     "sql": "INSERT INTO golf_dw.lME_Measurement SELECT m.measurement_id, p.PL_ID, s.ST_ID, m.value FROM golf_raw.PlayerImport m JOIN golf_dw.lPL_Player p ON p.player_id = m.player_id JOIN golf_dw.lST_Statistic s ON s.stat_id = m.stat_id"
                 }
-            ]
+            ],
+            "state": "suspended"
         }
     ]
 }

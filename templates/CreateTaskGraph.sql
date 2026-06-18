@@ -9,20 +9,10 @@ $/ foreach task in TASKS
 ----------------------------------------------------------------
 -- $task.name$
 ----------------------------------------------------------------
-CREATE OR REPLACE TASK $task.name$
-    WAREHOUSE = $WAREHOUSE$
-$/ if task.schedule
-    SCHEDULE = '$task.schedule$'
-$/ endif
-$/ if task.after
-    AFTER $/ foreach t in task.after $t.name$ $/ endfor
-$/ endif
-$/ if task.is_root == true
-    CONFIG = '$CONFIG$'
-$/ endif
-    USER_TASK_TIMEOUT_MS = $TASK_TIMEOUT$
-    SUSPEND_TASK_AFTER_NUM_FAILURES = $MAX_FAILURES$
-    COMMENT = '$task.description$'
+-- Procedure (wraps metadata logging + work)
+CREATE OR REPLACE PROCEDURE sp_$task.name$()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
 $$
 DECLARE
@@ -32,16 +22,13 @@ DECLARE
     row_count INT;
     cfg VARCHAR;
 BEGIN
-    -- Resolve graph run group from the running task
     grp_id := (SELECT COALESCE(
         SYSTEM$TASK_RUNTIME_INFO('CURRENT_ROOT_TASK_UUID'),
         UUID_STRING()
     ));
 
-    -- Read graph-level config
     cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG('workflow'));
 
-    -- Log task start
     tr_id := (CALL metadata._TaskRunStarting('$task.name$', :grp_id, :cfg));
 $/ foreach step in task.steps
 $/ if step.type == "proc"
@@ -78,6 +65,26 @@ $/ endfor
 END;
 $$;
 
+-- Task (calls the procedure)
+CREATE OR REPLACE TASK $task.name$
+    WAREHOUSE = $WAREHOUSE$
+    USER_TASK_TIMEOUT_MS = $TASK_TIMEOUT$
+$/ if task.is_root == true
+    SUSPEND_TASK_AFTER_NUM_FAILURES = $MAX_FAILURES$
+$/ endif
+    COMMENT = '$task.description$'
+$/ if task.schedule
+    SCHEDULE = '$task.schedule$'
+$/ endif
+$/ if task.after
+    AFTER $/ foreach t in task.after $/ if t.first() $t.name$$/ else ,$t.name$$/ endif $/ endfor
+$/ endif
+$/ if task.is_root == true
+    CONFIG = '$CONFIG$'
+$/ endif
+AS
+    CALL sp_$task.name$();
+
 $/ endfor
 
 -- ============================================================
@@ -95,10 +102,14 @@ $/ else
 $/ endif
 
 -- ============================================================
--- Resume all tasks in the graph
+-- Set task state
 -- ============================================================
 $/ foreach task in TASKS
+$/ if task.state == "running"
 ALTER TASK $task.name$ RESUME;
+$/ else
+ALTER TASK $task.name$ SUSPEND;
+$/ endif
 $/ endfor
 
 ~*/
