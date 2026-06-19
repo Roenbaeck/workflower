@@ -4,3 +4,4 @@ snowflake_cli_setup.png
 /metadata-mssql
 /examples-mssql
 /streamlit/output
+local/.venv/

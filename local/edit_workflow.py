@@ -2,13 +2,48 @@ import streamlit as st
 import streamlit.components.v1 as components
 import json
 import os
-from snowflake.snowpark.context import get_active_session
+import tomllib
+from snowflake.snowpark import Session
 
-session = get_active_session()
+
+def get_local_session():
+    """Create a Snowpark session from snow CLI config."""
+    conn_name = os.environ.get("SNOWFLAKE_CONNECTION", "U2C")
+    # snow CLI stores config in ~/.snowflake/config.toml or
+    # ~/Library/Application Support/snowflake/config.toml
+    config_paths = [
+        os.path.expanduser("~/.snowflake/config.toml"),
+        os.path.expanduser("~/Library/Application Support/snowflake/config.toml"),
+    ]
+    config_path = None
+    for p in config_paths:
+        if os.path.exists(p):
+            config_path = p
+            break
+    if not config_path:
+        raise FileNotFoundError(f"Snowflake config not found. Looked in: {', '.join(config_paths)}")
+    with open(config_path, "rb") as f:
+        cfg = tomllib.load(f)
+    conn = cfg["connections"][conn_name]
+    params = {
+        "account": conn["account"],
+        "user": conn["user"],
+        "password": conn["password"],
+        "host": conn.get("host"),
+        "port": conn.get("port", 443),
+        "protocol": conn.get("protocol", "https"),
+        "database": conn.get("database"),
+        "schema": conn.get("schema"),
+        "warehouse": conn.get("warehouse"),
+        "role": conn.get("role"),
+    }
+    return Session.builder.configs(params).create()
+
+
+session = get_local_session()
 
 
 def load_layout_engine():
-    """Load LayoutEngine.js from the same directory as this file."""
     path = os.path.join(os.path.dirname(__file__), "LayoutEngine.js")
     with open(path, "r") as f:
         return f.read()
@@ -16,8 +51,9 @@ def load_layout_engine():
 
 st.set_page_config(page_title="Workflow Editor", layout="wide")
 
-st.title("Workflow Editor")
+st.title("Run locally — workflow edits go to Snowflake")
 st.caption("Manage task graph definitions stored in metadata.CF_Configuration")
+
 
 # ---------------------------------------------------------------
 # Helpers
@@ -57,7 +93,6 @@ def validate_json(text):
 
 
 def extract_graph(parsed):
-    """Extract nodes and edges from parsed workflow JSON."""
     tasks = parsed.get("TASKS", [])
     nodes = []
     edges = []
@@ -77,8 +112,8 @@ def extract_graph(parsed):
 
 
 def render_graph_html(graph_data):
-    """Generate HTML with the LayoutEngine and SVG rendering."""
     graph_json = json.dumps(graph_data)
+    layout_js = load_layout_engine()
 
     html = """<!DOCTYPE html>
 <html>
@@ -96,7 +131,6 @@ def render_graph_html(graph_data):
 <body>
 <svg id="graph" viewBox="0 0 800 400" width="100%" height="400" style="display:block; background:#0e1117;"></svg>
 <script>
-// --- extend helper ---
 function extend(subClass, superClass) {
   var oldProto = subClass.prototype;
   var F = function() {};
@@ -104,9 +138,6 @@ function extend(subClass, superClass) {
   subClass.prototype = new F();
   subClass.prototype.constructor = subClass;
   subClass.superclass = superClass.prototype;
-  // Copy all existing prototype properties that were defined before extend()
-  // Always overwrite, even if superClass has the same property name,
-  // because the subclass version should take precedence.
   var keys = Object.getOwnPropertyNames(oldProto);
   for (var i = 0; i < keys.length; i++) {
     if (keys[i] !== 'constructor') {
@@ -114,95 +145,54 @@ function extend(subClass, superClass) {
     }
   }
 }
-
-// --- LayoutEngine ---
 __LAYOUT_JS__
-
-// --- Graph data ---
 var graphData = __GRAPH_JSON__;
-
-// --- Build nodes and edges ---
-var nodes = [];
-var nodeMap = {};
-var edges = [];
-
+var nodes = [], nodeMap = {}, edges = [];
 LayoutEngine.init();
-
-var SVG = document.getElementById('graph');
-var svgNS = 'http://www.w3.org/2000/svg';
-
+var SVG = document.getElementById('graph'), svgNS = 'http://www.w3.org/2000/svg';
 graphData.nodes.forEach(function(n, i) {
   var angle = (i / Math.max(graphData.nodes.length, 1)) * 2 * Math.PI;
   var nodeType = n.is_root ? NodeType.ROOT_TASK : NodeType.TASK;
   var node = new Node(n.id, 400 + Math.cos(angle) * 120, 200 + Math.sin(angle) * 100, nodeType);
-  node.label = n.label;
-  node.isRoot = n.is_root;
-  node.description = n.description;
-  nodes.push(node);
-  nodeMap[n.id] = node;
+  node.label = n.label; node.isRoot = n.is_root; node.description = n.description;
+  nodes.push(node); nodeMap[n.id] = node;
 });
-
 var edgeId = 1000;
 graphData.edges.forEach(function(e) {
-  var src = nodeMap[e.source];
-  var tgt = nodeMap[e.target];
-  if (src && tgt) {
-    var edge = new Edge(edgeId++, src, tgt);
-    edges.push(edge);
-    nodes.push(edge);
-  }
+  var src = nodeMap[e.source], tgt = nodeMap[e.target];
+  if (src && tgt) { var edge = new Edge(edgeId++, src, tgt); edges.push(edge); nodes.push(edge); }
 });
-
-// --- Coordinate conversion ---
 function screenToSVG(x, y) {
-  var pt = SVG.createSVGPoint();
-  pt.x = x; pt.y = y;
+  var pt = SVG.createSVGPoint(); pt.x = x; pt.y = y;
   var ctm = SVG.getScreenCTM();
   if (ctm) return pt.matrixTransform(ctm.inverse());
   return {x: x, y: y};
 }
-
-// --- Rendering ---
-function clearSvg() {
-  while (SVG.firstChild) SVG.removeChild(SVG.firstChild);
-}
-
+function clearSvg() { while (SVG.firstChild) SVG.removeChild(SVG.firstChild); }
 function createElem(tag, attrs) {
   var el = document.createElementNS(svgNS, tag);
   for (var k in attrs) el.setAttribute(k, attrs[k]);
   return el;
 }
-
 function render() {
   clearSvg();
   edges.forEach(function(edge) {
-    var src = edge.node;
-    var tgt = edge.otherNode;
-    var path = createElem('path', {
+    var src = edge.node, tgt = edge.otherNode;
+    SVG.appendChild(createElem('path', {
       'class': 'edge-line',
-      'd': 'M' + src.xPosition + ',' + src.yPosition +
-           ' Q' + edge.xPosition + ',' + edge.yPosition +
-           ' ' + tgt.xPosition + ',' + tgt.yPosition
-    });
-    SVG.appendChild(path);
-    var dx = tgt.xPosition - edge.xPosition;
-    var dy = tgt.yPosition - edge.yPosition;
-    var len = Math.sqrt(dx*dx + dy*dy) || 1;
-    var ux = dx / len, uy = dy / len;
-    var nodeR = tgt.isRoot ? 22 : 18;
-    var tipX = tgt.xPosition - ux * (nodeR + 2);
-    var tipY = tgt.yPosition - uy * (nodeR + 2);
-    var aSize = 8;
-    var bX = tipX - ux * aSize, bY = tipY - uy * aSize;
-    var pX = -uy * aSize * 0.5, pY = ux * aSize * 0.5;
+      'd': 'M' + src.xPosition + ',' + src.yPosition + ' Q' + edge.xPosition + ',' + edge.yPosition + ' ' + tgt.xPosition + ',' + tgt.yPosition
+    }));
+    var dx = tgt.xPosition - edge.xPosition, dy = tgt.yPosition - edge.yPosition, len = Math.sqrt(dx*dx + dy*dy) || 1;
+    var ux = dx / len, uy = dy / len, nodeR = tgt.isRoot ? 22 : 18;
+    var tipX = tgt.xPosition - ux * (nodeR + 2), tipY = tgt.yPosition - uy * (nodeR + 2), aSize = 8;
+    var bX = tipX - ux * aSize, bY = tipY - uy * aSize, pX = -uy * aSize * 0.5, pY = ux * aSize * 0.5;
     SVG.appendChild(createElem('polygon', {
       'points': tipX + ',' + tipY + ' ' + (bX+pX) + ',' + (bY+pY) + ' ' + (bX-pX) + ',' + (bY-pY),
       'fill': '#4a9eff'
     }));
   });
   graphData.nodes.forEach(function(n) {
-    var node = nodeMap[n.id];
-    if (!node) return;
+    var node = nodeMap[n.id]; if (!node) return;
     var r = node.isRoot ? 22 : 18;
     var circle = createElem('circle', {
       'class': 'node-circle' + (node.isRoot ? ' root-node' : ''),
@@ -213,96 +203,43 @@ function render() {
       'data-id': n.id
     });
     SVG.appendChild(circle);
-    var label = createElem('text', {
-      'class': 'node-label',
-      'x': node.xPosition, 'y': node.yPosition + r + 14
-    });
+    var label = createElem('text', { 'class': 'node-label', 'x': node.xPosition, 'y': node.yPosition + r + 14 });
     label.textContent = n.label;
     SVG.appendChild(label);
   });
 }
-
-// --- Drag handling ---
-var dragNode = null;
-var dragStartX = 0, dragStartY = 0;
-var isDragging = false;
-var DRAG_THRESHOLD = 5;
-
+var dragNode = null, dragStartX = 0, dragStartY = 0, isDragging = false, DRAG_THRESHOLD = 5;
 SVG.addEventListener('mousedown', function(e) {
   if (e.target.classList && e.target.classList.contains('node-circle')) {
     var id = e.target.getAttribute('data-id');
     dragNode = nodeMap[id];
-    if (dragNode) {
-      dragStartX = e.clientX;
-      dragStartY = e.clientY;
-      isDragging = false;
-      e.preventDefault();
-    }
+    if (dragNode) { dragStartX = e.clientX; dragStartY = e.clientY; isDragging = false; e.preventDefault(); }
   }
 });
-
 SVG.addEventListener('mousemove', function(e) {
   if (dragNode) {
-    if (!isDragging) {
-      var dx = Math.abs(e.clientX - dragStartX);
-      var dy = Math.abs(e.clientY - dragStartY);
-      if (Math.max(dx, dy) < DRAG_THRESHOLD) return;
-      isDragging = true;
-      dragNode.fixed = true;
-      dragNode.setUnstoppable(true);
-    }
+    if (!isDragging) { if (Math.max(Math.abs(e.clientX - dragStartX), Math.abs(e.clientY - dragStartY)) < DRAG_THRESHOLD) return; isDragging = true; dragNode.fixed = true; dragNode.setUnstoppable(true); }
     if (isDragging) {
       var pt = screenToSVG(e.clientX, e.clientY);
-      dragNode.xPosition = pt.x;
-      dragNode.yPosition = pt.y;
-      dragNode.xVelocity = 0;
-      dragNode.yVelocity = 0;
-      dragNode.start();
-      LayoutEngine.equilibrium = false;
-      startAnimation();
-      e.preventDefault();
+      dragNode.xPosition = pt.x; dragNode.yPosition = pt.y; dragNode.xVelocity = 0; dragNode.yVelocity = 0;
+      dragNode.start(); LayoutEngine.equilibrium = false; startAnimation(); e.preventDefault();
     }
   }
 });
-
 window.addEventListener('mouseup', function(e) {
-  if (dragNode) {
-    dragNode.fixed = false;
-    dragNode.setUnstoppable(false);
-    dragNode = null;
-    isDragging = false;
-  }
+  if (dragNode) { dragNode.fixed = false; dragNode.setUnstoppable(false); dragNode = null; isDragging = false; }
 });
-
-// --- Animation loop ---
 var running = false;
-
 function engine() {
-  if (!LayoutEngine.equilibrium) {
-    LayoutEngine.layout(nodes);
-    render();
-  }
-  if (LayoutEngine.equilibrium) {
-    running = false;
-  } else {
-    window.requestAnimationFrame(engine);
-  }
+  if (!LayoutEngine.equilibrium) { LayoutEngine.layout(nodes); render(); }
+  if (LayoutEngine.equilibrium) { running = false; } else { window.requestAnimationFrame(engine); }
 }
-
-function startAnimation() {
-  if (!running) {
-    running = true;
-    LayoutEngine.equilibrium = false;
-    window.requestAnimationFrame(engine);
-  }
-}
-
-render();
-startAnimation();
+function startAnimation() { if (!running) { running = true; LayoutEngine.equilibrium = false; window.requestAnimationFrame(engine); } }
+render(); startAnimation();
 </script>
 </body>
 </html>"""
-    html = html.replace("__LAYOUT_JS__", load_layout_engine())
+    html = html.replace("__LAYOUT_JS__", layout_js)
     html = html.replace("__GRAPH_JSON__", graph_json)
     return html
 
@@ -353,7 +290,6 @@ with col_right:
         st.stop()
 
     is_new = st.session_state.selected == "__new__"
-    title = "New workflow" if is_new else st.session_state.selected
 
     parsed, error = validate_json(st.session_state.content)
     if error:
@@ -363,7 +299,6 @@ with col_right:
     tasks = parsed.setdefault("TASKS", [])
     task_names = [t.get("name", f"task_{i}") for i, t in enumerate(tasks)]
 
-    # Sync session state back to parsed before rendering widgets
     def ss(key, fallback):
         return st.session_state.get(key, fallback)
 
@@ -373,7 +308,6 @@ with col_right:
     parsed["MAX_FAILURES"] = ss("max_fail", parsed.get("MAX_FAILURES", 3))
     parsed["CONFIG"] = ss("cfg", parsed.get("CONFIG", ""))
 
-    # Top section: graph + properties side by side
     col_graph, col_props = st.columns([2, 1])
 
     with col_graph:
@@ -401,19 +335,16 @@ with col_right:
             sel_task = tasks[sel_idx]
             sel_pfx = f"t{sel_idx}_"
 
-            # Add task button
             if st.button("+ Add task", use_container_width=True):
                 tasks.append({"name": "new_task", "description": "", "steps": [], "after": []})
                 st.experimental_rerun()
 
-    # Bottom: task form and JSON tabs
     tab_task, tab_steps, tab_json = st.tabs(["Task", "Steps", "JSON"])
 
     with tab_task:
         if not task_names:
             st.info("Create a task to get started.")
         else:
-            # Sync session state back to sel_task
             sel_task["name"] = ss(sel_pfx + "name", sel_task.get("name", ""))
             sel_task["description"] = ss(sel_pfx + "desc", sel_task.get("description", ""))
             sel_task["is_root"] = ss(sel_pfx + "root", sel_task.get("is_root", False))
@@ -427,21 +358,16 @@ with col_right:
             with col_t2:
                 st.checkbox("Is root", value=sel_task.get("is_root", False), key=sel_pfx + "root")
                 st.selectbox("State", ["suspended", "running"],
-                             index=0 if sel_task.get("state", "suspended") == "suspended" else 1,
-                             key=sel_pfx + "state")
-            st.text_input("Schedule (cron)", value=sel_task.get("schedule", "") or "",
-                          key=sel_pfx + "sched",
+                             index=0 if sel_task.get("state", "suspended") == "suspended" else 1, key=sel_pfx + "state")
+            st.text_input("Schedule (cron)", value=sel_task.get("schedule", "") or "", key=sel_pfx + "sched",
                           help="Set on the root task. Example: USING CRON 0 2 * * * UTC")
 
-            # After dependencies
             parent_names = [n for i, n in enumerate(task_names) if i != sel_idx]
             after = sel_task.get("after") or []
-            after_names = [a.get("name", "") for a in after]
             task_after = st.multiselect("Run after", options=parent_names,
-                                        default=after_names, key=sel_pfx + "after")
+                                        default=[a.get("name", "") for a in after], key=sel_pfx + "after")
             sel_task["after"] = [{"name": n} for n in task_after] if task_after else None
 
-            # Remove task
             if st.button("Remove this task", type="secondary"):
                 tasks.pop(sel_idx)
                 for k in list(st.session_state.keys()):
@@ -458,7 +384,6 @@ with col_right:
                 with st.expander(f"Step {si+1}: {step.get('description', 'Not described')}", expanded=si == len(sel_task["steps"]) - 1):
                     step["type"] = ss(step_pfx + "type", step.get("type", "proc"))
                     step["description"] = ss(step_pfx + "desc", step.get("description", ""))
-
                     st.selectbox("Type", ["proc", "sql", "lineage", "rows", "return_value"],
                                  index=["proc", "sql", "lineage", "rows", "return_value"].index(step.get("type", "proc")),
                                  key=step_pfx + "type")
@@ -474,10 +399,7 @@ with col_right:
                         st.text_input("Source", value=src, key=step_pfx + "src")
                         st.text_input("Target", value=tgt, key=step_pfx + "tgt")
                         step["sql"] = st.text_area("SQL", value=step.get("sql", ""), height=80, key=step_pfx + "sql")
-                        if src or tgt:
-                            step["lineage"] = {"source": src, "target": tgt}
-                        else:
-                            step["lineage"] = None
+                        step["lineage"] = {"source": src, "target": tgt} if (src or tgt) else None
                     elif step["type"] == "lineage":
                         step["source"] = ss(step_pfx + "src", step.get("source", ""))
                         step["target"] = ss(step_pfx + "tgt", step.get("target", ""))
@@ -495,7 +417,6 @@ with col_right:
                         step["message"] = ss(step_pfx + "msg", step.get("message", ""))
                         st.text_input("Message", value=step.get("message", ""), key=step_pfx + "msg")
 
-            # Add / remove steps
             col_s1, col_s2 = st.columns(2)
             with col_s1:
                 if st.button("+ Add step", use_container_width=True):
@@ -510,10 +431,8 @@ with col_right:
         st.caption("Live preview — the JSON updates as you edit the form above.")
         st.code(json.dumps(parsed, indent=2), language="json")
 
-    # Save serialized state
     st.session_state.content = json.dumps(parsed)
 
-    # Action buttons
     st.write("")
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -522,7 +441,6 @@ with col_right:
             result = save_workflow(name, st.session_state.content)
             st.cache_data.clear()
             st.session_state.selected = name
-            # Clear prefixed session keys to avoid stale data on next workflow
             for k in list(st.session_state.keys()):
                 if k.startswith("t") and "_" in k:
                     del st.session_state[k]
