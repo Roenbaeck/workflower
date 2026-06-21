@@ -22,6 +22,10 @@ html, body { height: 100%; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe 
 .top-row { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; padding: 1rem; min-height: 350px; }
 #graph-container { background: #1a1a2e; border-radius: 8px; overflow: hidden; position: relative; min-height: 300px; }
 #graph-container svg { width: 100%; height: 100%; display: block; }
+#graph-toolbar { position: absolute; top: 0.75rem; right: 0.75rem; display: flex; gap: 0.4rem; z-index: 2; }
+#graph-toolbar button { padding: 0.3rem 0.65rem; border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; background: rgba(15, 23, 42, 0.78); color: #e2e8f0; cursor: pointer; font: inherit; font-size: 0.75rem; backdrop-filter: blur(6px); }
+#graph-toolbar button:hover { background: rgba(30, 41, 59, 0.92); }
+#graph-toolbar button:disabled { opacity: 0.45; cursor: default; }
 #graph-container .node-circle { cursor: pointer; transition: filter 0.15s; }
 #graph-container .node-circle:hover { filter: brightness(1.3); }
 #graph-container .node-selected { stroke: #ff6b6b !important; stroke-width: 4 !important; }
@@ -103,7 +107,14 @@ html, body { height: 100%; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe 
     <div id="editor" style="display:none;">
       <!-- Top row: graph + properties -->
       <div class="top-row">
-        <div id="graph-container"></div>
+        <div id="graph-container">
+          <div id="graph-toolbar">
+            <button type="button" onclick="relayoutGraph()">Relayout</button>
+            <button type="button" id="btn-layout-toggle" onclick="toggleLayoutEngine()">Play</button>
+            <button type="button" id="btn-release-fixed" onclick="releaseFixedNodes()">Release fixed</button>
+            <button type="button" onclick="resetViewport()">Reset view</button>
+          </div>
+        </div>
         <div id="props">
           <label>Workflow Properties</label>
           <input id="wf-name" placeholder="Workflow name" oninput="syncForm()"/>
@@ -162,10 +173,154 @@ let data = null;           // parsed workflow JSON
 let selectedTask = 0;      // index into data.TASKS
 let dirty = false;
 let needsInitialLayout = false;
+let layoutState = { positions: {}, viewport: null };
 let nodeMap = {};          // id -> LayoutEngine Node
 let nodes = [];            // all nodes (tasks + edges)
 let edges = [];            // edge objects
 let svgEl, svgNS;
+let panState = { active: false, lastX: 0, lastY: 0, scaleX: 1, scaleY: 1 };
+
+const DEFAULT_VIEWBOX = { x: 0, y: 0, width: 800, height: 450 };
+
+function taskId(task, index) {
+  return task.name || ('task_' + index);
+}
+
+function layoutStorageKey(name) {
+  let workflowName = name && name !== '__new__' ? name : (data && data.WORKFLOW) || 'NewWorkflow';
+  return 'workflow-editor-layout:' + workflowName;
+}
+
+function extractLegacyLayout(workflow) {
+  let positions = {};
+  (workflow.TASKS || []).forEach((task, index) => {
+    let id = taskId(task, index);
+    if (task._x != null || task._y != null || task._fixed != null) {
+      positions[id] = {};
+      if (task._x != null) positions[id].x = task._x;
+      if (task._y != null) positions[id].y = task._y;
+      if (task._fixed != null) positions[id].fixed = !!task._fixed;
+    }
+    delete task._x;
+    delete task._y;
+    delete task._fixed;
+  });
+  return positions;
+}
+
+function loadLayoutState(name, legacyPositions) {
+  layoutState = { positions: {}, viewport: null };
+  try {
+    let raw = window.localStorage.getItem(layoutStorageKey(name));
+    if (raw) {
+      let parsed = JSON.parse(raw);
+      if (parsed && parsed.positions && typeof parsed.positions === 'object') {
+        layoutState.positions = parsed.positions;
+      }
+      if (parsed && parsed.viewport) {
+        layoutState.viewport = parsed.viewport;
+      }
+    }
+  } catch (e) {
+    layoutState = { positions: {}, viewport: null };
+  }
+  Object.keys(legacyPositions || {}).forEach((id) => {
+    if (!layoutState.positions[id]) layoutState.positions[id] = legacyPositions[id];
+  });
+}
+
+function persistLayoutState() {
+  if (!data) return;
+  let filteredPositions = {};
+  (data.TASKS || []).forEach((task, index) => {
+    let id = taskId(task, index);
+    if (layoutState.positions[id]) filteredPositions[id] = layoutState.positions[id];
+  });
+  layoutState.positions = filteredPositions;
+  try {
+    window.localStorage.setItem(layoutStorageKey(), JSON.stringify(layoutState));
+  } catch (e) {
+    // ignore storage failures
+  }
+}
+
+function clearLayoutState(name) {
+  try {
+    window.localStorage.removeItem(layoutStorageKey(name));
+  } catch (e) {
+    // ignore storage failures
+  }
+}
+
+function getLayoutPosition(id) {
+  return layoutState.positions[id] || null;
+}
+
+function serializeWorkflow() {
+  let clone = JSON.parse(JSON.stringify(data));
+  (clone.TASKS || []).forEach((task) => {
+    delete task._x;
+    delete task._y;
+    delete task._fixed;
+  });
+  return clone;
+}
+
+function setViewBox(x, y, width, height, persist) {
+  if (!svgEl) return;
+  svgEl.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+  if (persist !== false) {
+    layoutState.viewport = { x, y, width, height };
+    persistLayoutState();
+  }
+}
+
+function currentViewBox() {
+  if (!svgEl) return { ...DEFAULT_VIEWBOX };
+  let vb = svgEl.viewBox.baseVal;
+  return {
+    x: vb.x,
+    y: vb.y,
+    width: vb.width || DEFAULT_VIEWBOX.width,
+    height: vb.height || DEFAULT_VIEWBOX.height,
+  };
+}
+
+function applyStoredViewport() {
+  let viewport = layoutState.viewport || DEFAULT_VIEWBOX;
+  setViewBox(viewport.x, viewport.y, viewport.width, viewport.height, false);
+}
+
+function wakeNodes() {
+  nodes.forEach((node) => {
+    if (node && typeof node.start === 'function') node.start();
+  });
+}
+
+function reseedLayoutPositions() {
+  let tasks = data.TASKS || [];
+  let viewBox = currentViewBox();
+  let centerX = viewBox.x + viewBox.width / 2;
+  let centerY = viewBox.y + viewBox.height / 2;
+  let radiusX = Math.max(120, viewBox.width * 0.28);
+  let radiusY = Math.max(90, viewBox.height * 0.24);
+  tasks.forEach((task, index) => {
+    let node = nodeMap[taskId(task, index)];
+    if (!node || node.fixed) return;
+    let angle = (index / Math.max(tasks.length, 1)) * 2 * Math.PI;
+    node.xPosition = centerX + Math.cos(angle) * radiusX;
+    node.yPosition = centerY + Math.sin(angle) * radiusY;
+    node.xVelocity = 0;
+    node.yVelocity = 0;
+  });
+}
+
+function updateGraphToolbar() {
+  let toggle = document.getElementById('btn-layout-toggle');
+  if (toggle) toggle.textContent = DrawingEngine.running ? 'Pause' : 'Play';
+  let release = document.getElementById('btn-release-fixed');
+  if (release) release.disabled = !Object.values(nodeMap).some((node) => node.fixed);
+}
 
 const DrawingEngine = {
   drawId: null,
@@ -185,6 +340,7 @@ const DrawingEngine = {
   },
   start(layoutModel) {
     this.layout = layoutModel;
+    updateGraphToolbar();
     if (this.running) return;
     this.running = true;
     this.drawId = window.requestAnimationFrame(() => this.engine());
@@ -195,6 +351,7 @@ const DrawingEngine = {
     this.drawId = null;
     this.running = false;
     this.layout = false;
+    updateGraphToolbar();
   },
   engine() {
     if (this.layout || !LayoutEngine.equilibrium) {
@@ -240,6 +397,7 @@ async function loadWorkflow(name) {
   current = wf.name;
   data = JSON.parse(wf.content);
   data.TASKS = data.TASKS || [];
+  loadLayoutState(current, extractLegacyLayout(data));
   selectedTask = 0;
   dirty = false;
   needsInitialLayout = true;
@@ -248,7 +406,7 @@ async function loadWorkflow(name) {
 
 async function saveWorkflow() {
   await api('/api/workflows/' + encodeURIComponent(current), {
-    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(serializeWorkflow())
   });
   dirty = false;
   showStatus('Saved', 'success');
@@ -257,6 +415,7 @@ async function saveWorkflow() {
 
 async function deleteWorkflow() {
   if (!confirm('Delete "' + current + '"?')) return;
+  clearLayoutState(current);
   await api('/api/workflows/' + encodeURIComponent(current), { method: 'DELETE' });
   current = null; data = null;
   showStatus('Deleted', 'success');
@@ -290,6 +449,7 @@ async function selectWorkflow(name) {
 function newWorkflow() {
   current = '__new__';
   data = { WORKFLOW: 'NewWorkflow', WAREHOUSE: 'COMPUTE_WH', TASK_TIMEOUT: 3600000, MAX_FAILURES: 3, TASKS: [] };
+  layoutState = { positions: {}, viewport: { ...DEFAULT_VIEWBOX } };
   selectedTask = 0;
   dirty = true;
   needsInitialLayout = true;
@@ -359,7 +519,10 @@ function renderGraph() {
     svgEl.setAttribute('height', '100%');
     svgEl.style.display = 'block';
     container.appendChild(svgEl);
+    svgEl.addEventListener('mousedown', beginPanning);
+    svgEl.addEventListener('wheel', zoomGraph, { passive: false });
   }
+  applyStoredViewport();
 
   LayoutEngine.init();
   LayoutEngine.layout = LayoutEngine.simpleLayout;
@@ -371,19 +534,21 @@ function renderGraph() {
 
   tasks.forEach((t, i) => {
     let angle = (i / Math.max(tasks.length, 1)) * 2 * Math.PI;
-    let px = useSavedPositions && t._x != null ? t._x : (400 + Math.cos(angle) * 150);
-    let py = useSavedPositions && t._y != null ? t._y : (225 + Math.sin(angle) * 100);
-    let node = new Node(t.name || ('task_'+i), px, py, t.is_root ? NodeType.ROOT_TASK : NodeType.TASK);
-    node.fixed = !!t._fixed;
+    let id = taskId(t, i);
+    let saved = getLayoutPosition(id);
+    let px = useSavedPositions && saved && saved.x != null ? saved.x : (400 + Math.cos(angle) * 150);
+    let py = useSavedPositions && saved && saved.y != null ? saved.y : (225 + Math.sin(angle) * 100);
+    let node = new Node(id, px, py, t.is_root ? NodeType.ROOT_TASK : NodeType.TASK);
+    node.fixed = !!(saved && saved.fixed);
     node.label = t.name; node.isRoot = t.is_root; node.description = t.description;
     nodes.push(node);
-    nodeMap[t.name || ('task_'+i)] = node;
+    nodeMap[id] = node;
   });
 
   let eid = 1000;
   tasks.forEach((t, i) => {
     (t.after || []).forEach(a => {
-      let src = nodeMap[a.name], tgt = nodeMap[t.name || ('task_'+i)];
+      let src = nodeMap[a.name], tgt = nodeMap[taskId(t, i)];
       if (src && tgt) {
         let edge = new Edge(eid++, src, tgt);
         edges.push(edge);
@@ -393,12 +558,17 @@ function renderGraph() {
   });
 
   // Re-layout once when a workflow is loaded, otherwise only when positions are missing.
-  let allSaved = tasks.every(t => t._x != null && t._y != null);
+  let allSaved = tasks.every((t, i) => {
+    let saved = getLayoutPosition(taskId(t, i));
+    return saved && saved.x != null && saved.y != null;
+  });
   let shouldLayout = needsInitialLayout || !allSaved;
   drawGraph();
   needsInitialLayout = false;
+  updateGraphToolbar();
   if (shouldLayout) {
     LayoutEngine.equilibrium = false;
+    wakeNodes();
     DrawingEngine.start(true);
   }
 }
@@ -426,7 +596,7 @@ function drawGraph() {
   });
 
   tasks.forEach((t, i) => {
-    let node = nodeMap[t.name || ('task_'+i)];
+    let node = nodeMap[taskId(t, i)];
     if (!node) return;
     let r = node.isRoot ? 22 : 18;
     let isSel = (i === selectedTask);
@@ -454,7 +624,7 @@ function drawGraph() {
     circle.addEventListener('dblclick', function() {
       clearTimeout(pendingClickTimer);
       pendingClickTimer = null;
-      let idx = tasks.findIndex(tk => (tk.name || ('task_'+i)) === (t.name || ('task_'+i)));
+      let idx = tasks.findIndex((tk, taskIndex) => taskId(tk, taskIndex) === taskId(t, i));
       if (idx >= 0) selectTask(idx);
     });
     svgEl.appendChild(circle);
@@ -479,10 +649,12 @@ let suppressClickUntil = 0;
 let pendingClickTimer = null;
 
 function screenToSVG(x, y) {
-  if (!svgEl) return {x: x, y: y};
-  let rect = svgEl.getBoundingClientRect();
-  let vb = svgEl.viewBox.baseVal;
-  return { x: (x - rect.left) * vb.width / rect.width, y: (y - rect.top) * vb.height / rect.height };
+  if (!svgEl) return { x: x, y: y };
+  let point = svgEl.createSVGPoint();
+  point.x = x;
+  point.y = y;
+  let matrix = svgEl.getScreenCTM();
+  return matrix ? point.matrixTransform(matrix.inverse()) : { x: x, y: y };
 }
 
 function findNodeByXY(x, y) {
@@ -493,21 +665,83 @@ function findNodeByXY(x, y) {
   return null;
 }
 
-function updatePositions(markDirty = true) {
+function updatePositions(markDirty) {
   let tasks = data.TASKS || [];
   for (let i = 0; i < tasks.length; i++) {
-    let n = nodeMap[tasks[i].name || ('task_'+i)];
+    let id = taskId(tasks[i], i);
+    let n = nodeMap[id];
     if (n) {
-      tasks[i]._x = n.xPosition;
-      tasks[i]._y = n.yPosition;
-      tasks[i]._fixed = !!n.fixed;
+      layoutState.positions[id] = { x: n.xPosition, y: n.yPosition, fixed: !!n.fixed };
     }
   }
+  persistLayoutState();
   if (markDirty) dirty = true;
+}
+
+function beginPanning(e) {
+  if (e.button !== 0 || e.target.classList.contains('node-circle')) return;
+  panState.active = true;
+  let viewBox = currentViewBox();
+  panState.scaleX = viewBox.width / Math.max(svgEl.clientWidth, 1);
+  panState.scaleY = viewBox.height / Math.max(svgEl.clientHeight, 1);
+  panState.lastX = e.clientX;
+  panState.lastY = e.clientY;
+  svgEl.style.cursor = 'move';
+  e.preventDefault();
+}
+
+function zoomGraph(e) {
+  if (!svgEl) return;
+  e.preventDefault();
+  let factor = 1 + (e.deltaY > 0 ? 1 : -1) * 0.03;
+  let viewBox = currentViewBox();
+  let svgPoint = screenToSVG(e.clientX, e.clientY);
+  setViewBox(
+    viewBox.x + (1 - factor) * (svgPoint.x - viewBox.x),
+    viewBox.y + (1 - factor) * (svgPoint.y - viewBox.y),
+    viewBox.width * factor,
+    viewBox.height * factor
+  );
+}
+
+function relayoutGraph() {
+  if (!nodes.length) return;
+  reseedLayoutPositions();
+  wakeNodes();
+  updatePositions(false);
+  LayoutEngine.equilibrium = false;
+  DrawingEngine.start(true);
+}
+
+function toggleLayoutEngine() {
+  if (DrawingEngine.running) {
+    DrawingEngine.stop();
+    return;
+  }
+  wakeNodes();
+  LayoutEngine.equilibrium = false;
+  DrawingEngine.start(true);
+}
+
+function releaseFixedNodes() {
+  Object.values(nodeMap).forEach((node) => {
+    node.fixed = false;
+    node.setUnstoppable(false);
+    node.start();
+  });
+  updatePositions(false);
+  updateGraphToolbar();
+  LayoutEngine.equilibrium = false;
+  DrawingEngine.start(true);
+}
+
+function resetViewport() {
+  setViewBox(DEFAULT_VIEWBOX.x, DEFAULT_VIEWBOX.y, DEFAULT_VIEWBOX.width, DEFAULT_VIEWBOX.height);
 }
 
 document.addEventListener('mousedown', function(e) {
   if (e.target.classList.contains('node-circle')) {
+    panState.active = false;
     let cx = parseFloat(e.target.getAttribute('cx'));
     let cy = parseFloat(e.target.getAttribute('cy'));
     dragNode = findNodeByXY(cx, cy);
@@ -520,6 +754,19 @@ document.addEventListener('mousedown', function(e) {
 });
 
 document.addEventListener('mousemove', function(e) {
+  if (panState.active && svgEl) {
+    let viewBox = currentViewBox();
+    setViewBox(
+      viewBox.x - (e.clientX - panState.lastX) * panState.scaleX,
+      viewBox.y - (e.clientY - panState.lastY) * panState.scaleY,
+      viewBox.width,
+      viewBox.height
+    );
+    panState.lastX = e.clientX;
+    panState.lastY = e.clientY;
+    e.preventDefault();
+    return;
+  }
   if (!dragNode) return;
   if (!isDragging) {
     if (Math.max(Math.abs(e.clientX - dragStart.x), Math.abs(e.clientY - dragStart.y)) < DRAG_THRESHOLD) return;
@@ -539,6 +786,10 @@ document.addEventListener('mousemove', function(e) {
 });
 
 document.addEventListener('mouseup', function() {
+  if (panState.active && svgEl) {
+    panState.active = false;
+    svgEl.style.cursor = 'default';
+  }
   if (dragNode && isDragging) {
     dragNode.setUnstoppable(false);
     suppressClickUntil = Date.now() + 250;
@@ -593,8 +844,15 @@ function renderTaskForm() {
 function syncTask() {
   let tasks = data.TASKS || [];
   let t = tasks[selectedTask] || tasks[0];
+  let oldId = taskId(t, selectedTask);
   let fName = document.getElementById('f-name');
   if (fName) t.name = fName.value;
+  let newId = taskId(t, selectedTask);
+  if (oldId !== newId && layoutState.positions[oldId] && !layoutState.positions[newId]) {
+    layoutState.positions[newId] = layoutState.positions[oldId];
+    delete layoutState.positions[oldId];
+    persistLayoutState();
+  }
   let fSched = document.getElementById('f-sched');
   if (fSched) t.schedule = fSched.value || null;
   let fDesc = document.getElementById('f-desc');
@@ -726,11 +984,15 @@ function addTask() {
   data.TASKS.push({ name: 'new_task', description: '', steps: [], after: [] });
   selectedTask = data.TASKS.length - 1;
   dirty = true;
+  LayoutEngine.equilibrium = false;
   renderEditor();
 }
 
 function removeTask() {
+  let removed = data.TASKS[selectedTask];
   data.TASKS.splice(selectedTask, 1);
+  if (removed) delete layoutState.positions[taskId(removed, selectedTask)];
+  persistLayoutState();
   selectedTask = Math.max(0, Math.min(selectedTask, data.TASKS.length - 1));
   dirty = true;
   renderEditor();
@@ -745,7 +1007,7 @@ function save() {
     current = data.WORKFLOW || 'Untitled';
   }
   data.WORKFLOW = current;
-  updatePositions();
+  updatePositions(false);
   saveWorkflow();
 }
 
