@@ -25,6 +25,7 @@ html, body { height: 100%; font: 13px -apple-system, BlinkMacSystemFont, 'Segoe 
 #graph-container .node-circle { cursor: pointer; transition: filter 0.15s; }
 #graph-container .node-circle:hover { filter: brightness(1.3); }
 #graph-container .node-selected { stroke: #ff6b6b !important; stroke-width: 4 !important; }
+#graph-container .node-fixation { fill: #f8fafc; stroke: #0f172a; stroke-width: 1; pointer-events: none; }
 #graph-container .node-label { fill: #e0e0e0; font-size: 10px; font-family: sans-serif; }
 #graph-container .edge-line { stroke: #4a9eff; stroke-width: 1.5; fill: none; opacity: 0.5; }
 #graph-container .root-node { stroke: #ffd700; stroke-width: 2.5; }
@@ -160,14 +161,61 @@ let current = null;        // workflow name
 let data = null;           // parsed workflow JSON
 let selectedTask = 0;      // index into data.TASKS
 let dirty = false;
+let needsInitialLayout = false;
 let nodeMap = {};          // id -> LayoutEngine Node
 let nodes = [];            // all nodes (tasks + edges)
 let edges = [];            // edge objects
 let svgEl, svgNS;
 
+const DrawingEngine = {
+  drawId: null,
+  running: false,
+  layout: false,
+  init() {
+    if (!window.requestAnimationFrame) {
+      window.requestAnimationFrame = function(callback) {
+        return setTimeout(callback, 16);
+      };
+    }
+    if (!window.cancelAnimationFrame) {
+      window.cancelAnimationFrame = function(id) {
+        clearTimeout(id);
+      };
+    }
+  },
+  start(layoutModel) {
+    this.layout = layoutModel;
+    if (this.running) return;
+    this.running = true;
+    this.drawId = window.requestAnimationFrame(() => this.engine());
+  },
+  stop() {
+    if (!this.running) return;
+    window.cancelAnimationFrame(this.drawId);
+    this.drawId = null;
+    this.running = false;
+    this.layout = false;
+  },
+  engine() {
+    if (this.layout || !LayoutEngine.equilibrium) {
+      LayoutEngine.layout(nodes);
+      updatePositions(false);
+    }
+    drawGraph();
+    if (LayoutEngine.equilibrium) {
+      this.stop();
+      return;
+    }
+    if (this.running) {
+      this.drawId = window.requestAnimationFrame(() => this.engine());
+    }
+  }
+};
+
 // --- LayoutEngine init ---
 LayoutEngine.init();
 LayoutEngine.layout = LayoutEngine.simpleLayout;
+DrawingEngine.init();
 
 // --- API helpers ---
 async function api(url, opts = {}) {
@@ -194,6 +242,7 @@ async function loadWorkflow(name) {
   data.TASKS = data.TASKS || [];
   selectedTask = 0;
   dirty = false;
+  needsInitialLayout = true;
   renderEditor();
 }
 
@@ -243,6 +292,7 @@ function newWorkflow() {
   data = { WORKFLOW: 'NewWorkflow', WAREHOUSE: 'COMPUTE_WH', TASK_TIMEOUT: 3600000, MAX_FAILURES: 3, TASKS: [] };
   selectedTask = 0;
   dirty = true;
+  needsInitialLayout = true;
   showEditor();
   renderSidebar();
   renderEditor();
@@ -299,6 +349,7 @@ function selectTask(idx) {
 function renderGraph() {
   let tasks = data.TASKS || [];
   let container = document.getElementById('graph-container');
+  DrawingEngine.stop();
   svgEl = document.getElementById('graph-svg');
   if (!svgEl) {
     svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -316,12 +367,14 @@ function renderGraph() {
   nodeMap = {};
   edges = [];
   svgNS = 'http://www.w3.org/2000/svg';
+  let useSavedPositions = !needsInitialLayout;
 
   tasks.forEach((t, i) => {
     let angle = (i / Math.max(tasks.length, 1)) * 2 * Math.PI;
-    let px = t._x != null ? t._x : (400 + Math.cos(angle) * 150);
-    let py = t._y != null ? t._y : (225 + Math.sin(angle) * 100);
+    let px = useSavedPositions && t._x != null ? t._x : (400 + Math.cos(angle) * 150);
+    let py = useSavedPositions && t._y != null ? t._y : (225 + Math.sin(angle) * 100);
     let node = new Node(t.name || ('task_'+i), px, py, t.is_root ? NodeType.ROOT_TASK : NodeType.TASK);
+    node.fixed = !!t._fixed;
     node.label = t.name; node.isRoot = t.is_root; node.description = t.description;
     nodes.push(node);
     nodeMap[t.name || ('task_'+i)] = node;
@@ -339,16 +392,16 @@ function renderGraph() {
     });
   });
 
-  // Only run layout if nodes don't have saved positions
+  // Re-layout once when a workflow is loaded, otherwise only when positions are missing.
   let allSaved = tasks.every(t => t._x != null && t._y != null);
-  if (!allSaved) {
-    LayoutEngine.equilibrium = false;
-    for (let i = 0; i < 80 && !LayoutEngine.equilibrium; i++) {
-      LayoutEngine.layout(nodes);
-    }
-    updatePositions();
-  }
+  let shouldLayout = needsInitialLayout || !allSaved;
   drawGraph();
+  needsInitialLayout = false;
+  if (shouldLayout) {
+    LayoutEngine.equilibrium = false;
+    DrawingEngine.start(true);
+  }
+}
 
 function drawGraph() {
   let tasks = data.TASKS || [];
@@ -384,11 +437,35 @@ function drawGraph() {
       stroke: isSel ? '#ff6b6b' : (node.isRoot ? '#ffd700' : '#4a9eff'),
       'stroke-width': isSel ? 4 : (node.isRoot ? 2.5 : 1.5)
     });
+    circle.addEventListener('click', function() {
+      if (Date.now() < suppressClickUntil) return;
+      clearTimeout(pendingClickTimer);
+      pendingClickTimer = setTimeout(function() {
+        pendingClickTimer = null;
+        if (!node.fixed) return;
+        node.fixed = false;
+        node.setUnstoppable(false);
+        node.start();
+        updatePositions();
+        LayoutEngine.equilibrium = false;
+        DrawingEngine.start(true);
+      }, 220);
+    });
     circle.addEventListener('dblclick', function() {
+      clearTimeout(pendingClickTimer);
+      pendingClickTimer = null;
       let idx = tasks.findIndex(tk => (tk.name || ('task_'+i)) === (t.name || ('task_'+i)));
       if (idx >= 0) selectTask(idx);
     });
     svgEl.appendChild(circle);
+    if (node.fixed) {
+      svgEl.appendChild(ce('circle', {
+        class: 'node-fixation',
+        cx: node.xPosition,
+        cy: node.yPosition,
+        r: Math.max(3, Math.round(r * 0.2))
+      }));
+    }
     let label = ce('text', { class: 'node-label', x: node.xPosition, y: node.yPosition + r + 14 });
     label.textContent = t.name || ('task_'+i);
     svgEl.appendChild(label);
@@ -398,7 +475,8 @@ function drawGraph() {
 // --- Drag ---
 let dragNode = null, dragStart = null, isDragging = false;
 let DRAG_THRESHOLD = 5;
-let svgEl, svgNS;
+let suppressClickUntil = 0;
+let pendingClickTimer = null;
 
 function screenToSVG(x, y) {
   if (!svgEl) return {x: x, y: y};
@@ -415,13 +493,17 @@ function findNodeByXY(x, y) {
   return null;
 }
 
-function updatePositions() {
+function updatePositions(markDirty = true) {
   let tasks = data.TASKS || [];
   for (let i = 0; i < tasks.length; i++) {
     let n = nodeMap[tasks[i].name || ('task_'+i)];
-    if (n) { tasks[i]._x = n.xPosition; tasks[i]._y = n.yPosition; }
+    if (n) {
+      tasks[i]._x = n.xPosition;
+      tasks[i]._y = n.yPosition;
+      tasks[i]._fixed = !!n.fixed;
+    }
   }
-  dirty = true;
+  if (markDirty) dirty = true;
 }
 
 document.addEventListener('mousedown', function(e) {
@@ -448,11 +530,19 @@ document.addEventListener('mousemove', function(e) {
   dragNode.yPosition = pt.y;
   dragNode.xVelocity = 0;
   dragNode.yVelocity = 0;
+  dragNode.start();
+  dragNode.fixed = true;
+  dragNode.setUnstoppable(true);
+  LayoutEngine.equilibrium = false;
   updatePositions();
-  drawGraph();
+  DrawingEngine.start(true);
 });
 
 document.addEventListener('mouseup', function() {
+  if (dragNode && isDragging) {
+    dragNode.setUnstoppable(false);
+    suppressClickUntil = Date.now() + 250;
+  }
   dragNode = null;
   isDragging = false;
 });
@@ -668,7 +758,6 @@ function getId(id) { return document.getElementById(id); }
 // Start app
 console.log('Calling loadWorkflows...');
 loadWorkflows().catch(e => console.error('loadWorkflows failed:', e));
-}
 </script>
 </body>
 </html>
