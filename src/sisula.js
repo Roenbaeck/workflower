@@ -13,7 +13,8 @@ var RE_ELSE = /^\s*\$\/\s*else\s*$/i;
 var RE_COMMENT_LINE = /^\s*\$-.*$/;
 var RE_INLINE_COMMENT = /\$-.*?-\$/g;
 
-var RE_TOKEN = /\$\{?([A-Za-z0-9_]+(?:\[\d+\])?(?:\.[A-Za-z0-9_]+(?:\[\d+\])?)*(?:\(\))?)\}?\$/g;
+// Use ASCII-safe token pattern for Snowflake's JS engine compatibility.
+var TOKEN_PATTERN = /\$\{?([A-Za-z0-9_]+(?:\[\d+\])?(?:\.[A-Za-z0-9_]+(?:\[\d+\])?)*(?:\(\))?)\}?\$/g;
 
 var RE_FUNC_CALL = /^(\w+)\s*\(([\s\S]*)\)$/;
 var RE_METHOD_CALL = /^(\w+)\.(first|last|index|count)\s*\(\s*\)\s*$/i;
@@ -268,7 +269,7 @@ function parseForeachSpec(spec) {
     var obIdx = specLower.lastIndexOf(" order by ");
     var left = spec;
     if (obIdx >= 0) {
-        left = rtrim(spec.substring(0, obIdx));
+        left = spec.substring(0, obIdx).trimRight ? spec.substring(0, obIdx).trimRight() : rtrim(spec.substring(0, obIdx));
         var right = spec.substring(obIdx + 10).trim();
         if (right) {
             var parts = right.split(/\s+/);
@@ -311,7 +312,11 @@ function prepareForeachItems(ctx, loopVars, path, whereExpr, orderPath, orderDes
                 if (!isNaN(da) && !isNaN(db) && String(ka).trim() === String(da) && String(kb).trim() === String(db)) {
                     cmp = da < db ? -1 : (da > db ? 1 : 0);
                 } else {
-                    cmp = (ka || "").localeCompare(kb || "", undefined, { sensitivity: "base" });
+                    var lowerA = (ka || "").toLowerCase();
+                    var lowerB = (kb || "").toLowerCase();
+                    if (lowerA < lowerB) cmp = -1;
+                    else if (lowerA > lowerB) cmp = 1;
+                    else cmp = 0;
                 }
             }
             return orderDesc ? -cmp : cmp;
@@ -455,8 +460,8 @@ function stringify(val) {
 
 function renderInline(text, ctx, loopVars) {
     if (!text) return "";
-    RE_TOKEN.lastIndex = 0;
-    return text.replace(RE_TOKEN, function (match, path) {
+    TOKEN_PATTERN.lastIndex = 0;
+    return text.replace(TOKEN_PATTERN, function (match, path) {
         var result = resolvePath(ctx, loopVars, path);
         return result !== null ? result : "";
     });
@@ -465,20 +470,19 @@ function renderInline(text, ctx, loopVars) {
 function expandInlineForeach(text, ctx, loopVars) {
     if (!text) return text;
     RE_FOREACH_INLINE_EMBEDDED.lastIndex = 0;
-    return text.replace(RE_FOREACH_INLINE_EMBEDDED, function (match, varName, spec, inlineBody) {
-        return renderInlineForeachParts(varName, spec, inlineBody, ctx, loopVars);
+    return text.replace(RE_FOREACH_INLINE_EMBEDDED, function (match) {
+        var m = new RegExp(RE_FOREACH_INLINE_EMBEDDED.source, RE_FOREACH_INLINE_EMBEDDED.flags).exec(match);
+        if (!m) return match;
+        return renderInlineForeachMatch(m, ctx, loopVars);
     });
 }
 
 function renderInlineForeachMatch(match, ctx, loopVars) {
-    return renderInlineForeachParts(match[1], match[2], match[3], ctx, loopVars);
-}
+    var varName = match[1];
+    var spec = match[2].trim();
+    var inlineBody = match[3];
 
-function renderInlineForeachParts(varName, spec, inlineBody, ctx, loopVars) {
-    var trimmedSpec = (spec || "").trim();
-    var trimmedBody = inlineBody || "";
-
-    var parsed = parseForeachSpec(trimmedSpec);
+    var parsed = parseForeachSpec(spec);
     var items = prepareForeachItems(ctx, loopVars, parsed.path, parsed.whereExpr, parsed.orderPath, parsed.orderDesc, varName);
     if (items.length === 0) return "";
 
@@ -494,7 +498,7 @@ function renderInlineForeachParts(varName, spec, inlineBody, ctx, loopVars) {
             last: idx === items.length - 1
         };
 
-        var iterationContent = trimmedBody;
+        var iterationContent = inlineBody;
         if (RE_IF_INLINE_EMBEDDED.test(iterationContent)) {
             iterationContent = expandInlineIfs(iterationContent, ctx, childVars);
         }
@@ -507,8 +511,10 @@ function renderInlineForeachParts(varName, spec, inlineBody, ctx, loopVars) {
 function expandInlineIfs(text, ctx, loopVars) {
     if (!text) return text;
     RE_IF_INLINE_EMBEDDED.lastIndex = 0;
-    return text.replace(RE_IF_INLINE_EMBEDDED, function (match, body) {
-        var parts = splitInlineIfBody(body);
+    return text.replace(RE_IF_INLINE_EMBEDDED, function (match) {
+        var m = new RegExp(RE_IF_INLINE_EMBEDDED.source, RE_IF_INLINE_EMBEDDED.flags).exec(match);
+        if (!m) return match;
+        var parts = splitInlineIfBody(m[1]);
         var condResult = evalConditionInContext(parts.condition, ctx, loopVars);
         var branch = condResult ? parts.whenTrue : parts.whenFalse;
         return branch || "";
@@ -774,8 +780,8 @@ function resolveOperand(token, itemObj, varName, loopVars) {
 }
 
 function resolveOperandPath(token, itemObj, varName) {
-    if (!varName) {
-        return resolvePathValue(itemObj, token) || "";
+    if (!token || !varName) {
+        return stringifyScalar(resolvePathValue(itemObj, token));
     }
     var inner;
     if (token.indexOf(varName + ".") === 0) inner = token.substring(varName.length + 1);
@@ -783,7 +789,9 @@ function resolveOperandPath(token, itemObj, varName) {
     else inner = token;
     if (endsWith(inner, "()")) inner = inner.substring(0, inner.length - 2);
     var val = inner === "" ? itemObj : resolvePathValue(itemObj, inner);
-    return val !== null && val !== undefined ? String(val) : "";
+    if (val === null || val === undefined) return "";
+    if (typeof val === "object") return JSON.stringify(val);
+    return String(val);
 }
 
 function compareOperands(lv, rv, op) {
@@ -809,7 +817,9 @@ function compareOperands(lv, rv, op) {
 
     var ls = String(lv != null ? lv : "");
     var rs = String(rv != null ? rv : "");
-    var cmp = ls.localeCompare(rs, undefined, { sensitivity: "base" });
+    var lowerA = ls.toLowerCase();
+    var lowerB = rs.toLowerCase();
+    var cmp = lowerA < lowerB ? -1 : (lowerA > lowerB ? 1 : 0);
     switch (op) {
         case "==": return cmp === 0;
         case "!=": return cmp !== 0;

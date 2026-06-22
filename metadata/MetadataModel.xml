@@ -1,1 +1,115 @@
-<schema format="0.100.6" date="2026-06-18" time="14:23:33"><metadata changingRange="datetime2(7)" encapsulation="metadata" identity="int" metadataPrefix="Metadata" metadataType="int" metadataUsage="false" changingSuffix="ChangedAt" identitySuffix="ID" positIdentity="int" positGenerator="true" positingRange="datetime" positingSuffix="PositedAt" positorRange="tinyint" positorSuffix="Positor" reliabilityRange="tinyint" reliabilitySuffix="Reliability" defaultReliability="1" deleteReliability="0" assertionSuffix="Assertion" partitioning="false" entityIntegrity="true" restatability="false" idempotency="true" assertiveness="false" naming="improved" positSuffix="Posit" annexSuffix="Annex" chronon="timestamp_tz" now="sysutcdatetime()" dummySuffix="Dummy" versionSuffix="Version" statementTypeSuffix="StatementType" checksumSuffix="Checksum" businessViews="false" decisiveness="false" equivalence="false" equivalentSuffix="EQ" equivalentRange="tinyint" databaseTarget="Snowflake" temporalization="uni" deletability="false" deletablePrefix="Deletable" deletionSuffix="Deleted" privacy="Ignore" checksum="false" triggers="true" knotAliases="false" naturalKeyAttributes="false"/><knot mnemonic="COT" descriptor="ContainerType" identity="tinyint" dataRange="varchar(42)"><metadata capsule="metadata" generator="false"/><layout x="765.63" y="219.10" fixed="false"/></knot><knot mnemonic="CFT" descriptor="ConfigurationType" identity="tinyint" dataRange="varchar(42)"><metadata capsule="metadata" generator="false"/><layout x="444.75" y="476.71" fixed="false"/></knot><knot mnemonic="TKN" descriptor="TaskName" identity="int" dataRange="varchar(500)"><metadata capsule="metadata" generator="true"/><layout x="798.06" y="775.64" fixed="false"/></knot><knot mnemonic="GRG" descriptor="GraphRunGroupId" identity="int" dataRange="varchar(100)"><metadata capsule="metadata" generator="true"/><layout x="949.22" y="690.32" fixed="false"/></knot><anchor mnemonic="TR" descriptor="TaskRun" identity="int"><metadata capsule="metadata" generator="true"/><attribute mnemonic="NAM" descriptor="TaskName" knotRange="TKN"><metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/><layout x="808.54" y="692.38" fixed="false"/></attribute><attribute mnemonic="GRG" descriptor="GraphRunGroupId" knotRange="GRG"><metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/><layout x="894.50" y="673.89" fixed="false"/></attribute><layout x="836.91" y="557.33" fixed="false"/></anchor><anchor mnemonic="CO" descriptor="Container" identity="int"><metadata capsule="metadata" generator="true"/><attribute mnemonic="NAM" descriptor="Name" dataRange="varchar(2000)"><metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/><layout x="927.50" y="231.08" fixed="false"/></attribute><attribute mnemonic="TYP" descriptor="Type" knotRange="COT"><metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/><layout x="818.66" y="261.07" fixed="false"/></attribute><attribute mnemonic="DSC" descriptor="Discovered" timeRange="timestamp_tz" dataRange="timestamp_tz"><metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/><layout x="897.58" y="236.64" fixed="false"/></attribute><layout x="912.83" y="305.11" fixed="false"/></anchor><anchor mnemonic="CF" descriptor="Configuration" identity="int"><metadata capsule="metadata" generator="true"/><attribute mnemonic="NAM" descriptor="Name" dataRange="varchar(255)"><metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/><layout x="570.27" y="402.19" fixed="false"/></attribute><attribute mnemonic="CNT" descriptor="Content" timeRange="timestamp_tz" dataRange="varchar(16777216)"><metadata privacy="Ignore" capsule="metadata" checksum="true" restatable="false" idempotent="true" deletable="false"/><layout x="551.83" y="506.09" fixed="false"/></attribute><attribute mnemonic="TYP" descriptor="Type" knotRange="CFT"><metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/><layout x="496.70" y="447.29" fixed="false"/></attribute><layout x="611.15" y="463.34" fixed="false"/></anchor><anchor mnemonic="OP" descriptor="Operations" identity="int"><metadata capsule="metadata" generator="true"/><attribute mnemonic="INS" descriptor="RowsInserted" timeRange="timestamp_tz" dataRange="int"><metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/><layout x="1129.66" y="405.13" fixed="false"/></attribute><attribute mnemonic="UPD" descriptor="RowsUpdated" timeRange="timestamp_tz" dataRange="int"><metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/><layout x="1099.21" y="495.59" fixed="false"/></attribute><attribute mnemonic="DEL" descriptor="RowsDeleted" timeRange="timestamp_tz" dataRange="int"><metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/><layout x="1152.23" y="450.74" fixed="false"/></attribute><attribute mnemonic="MRG" descriptor="RowsMerged" timeRange="timestamp_tz" dataRange="int"><metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/><layout x="1067.29" y="371.39" fixed="false"/></attribute><layout x="1057.39" y="445.25" fixed="false"/></anchor><tie><role role="operates" type="TR" identifier="true"/><role role="source" type="CO" identifier="true"/><role role="target" type="CO" identifier="true"/><role role="with" type="OP" identifier="false"/><metadata capsule="metadata" deletable="false" idempotent="true"/><layout x="913.71" y="426.34" fixed="false"/></tie><tie><role role="formed" type="TR" identifier="true"/><role role="from" type="CF" identifier="false"/><metadata capsule="metadata" deletable="false" idempotent="true"/><layout x="729.36" y="504.22" fixed="false"/></tie></schema>
+<schema format="0.100.6" date="2026-06-18" time="14:23:33">
+  <metadata changingRange="timestamp_tz" encapsulation="metadata" identity="int" metadataPrefix="Metadata" metadataType="int" metadataUsage="false" changingSuffix="ChangedAt" identitySuffix="ID" positIdentity="int" positGenerator="true" positingRange="datetime" positingSuffix="PositedAt" positorRange="tinyint" positorSuffix="Positor" reliabilityRange="tinyint" reliabilitySuffix="Reliability" defaultReliability="1" deleteReliability="0" assertionSuffix="Assertion" partitioning="false" entityIntegrity="true" restatability="false" idempotency="true" assertiveness="false" naming="improved" positSuffix="Posit" annexSuffix="Annex" chronon="timestamp_tz" now="CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)" dummySuffix="Dummy" versionSuffix="Version" statementTypeSuffix="StatementType" checksumSuffix="Checksum" businessViews="false" decisiveness="false" equivalence="false" equivalentSuffix="EQ" equivalentRange="tinyint" databaseTarget="Snowflake" temporalization="uni" deletability="false" deletablePrefix="Deletable" deletionSuffix="Deleted" privacy="Ignore" checksum="false" triggers="true" knotAliases="false" naturalKeyAttributes="false"/>
+  <knot mnemonic="COT" descriptor="ContainerType" identity="tinyint" dataRange="varchar(42)">
+    <metadata capsule="metadata" generator="false"/>
+    <layout x="765.63" y="219.10" fixed="false"/>
+  </knot>
+  <knot mnemonic="CFT" descriptor="ConfigurationType" identity="tinyint" dataRange="varchar(42)">
+    <metadata capsule="metadata" generator="false"/>
+    <layout x="444.75" y="476.71" fixed="false"/>
+  </knot>
+  <knot mnemonic="TKN" descriptor="TaskName" identity="int" dataRange="varchar(500)">
+    <metadata capsule="metadata" generator="true"/>
+    <layout x="798.06" y="775.64" fixed="false"/>
+  </knot>
+  <knot mnemonic="GRG" descriptor="GraphRunGroupId" identity="int" dataRange="varchar(100)">
+    <metadata capsule="metadata" generator="true"/>
+    <layout x="949.22" y="690.32" fixed="false"/>
+  </knot>
+  <anchor mnemonic="TR" descriptor="TaskRun" identity="int">
+    <metadata capsule="metadata" generator="true"/>
+    <attribute mnemonic="NAM" descriptor="TaskName" knotRange="TKN">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="808.54" y="692.38" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="GRG" descriptor="GraphRunGroupId" knotRange="GRG">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="894.50" y="673.89" fixed="false"/>
+    </attribute>
+    <layout x="836.91" y="557.33" fixed="false"/>
+  </anchor>
+  <anchor mnemonic="CO" descriptor="Container" identity="int">
+    <metadata capsule="metadata" generator="true"/>
+    <attribute mnemonic="NAM" descriptor="Name" dataRange="varchar(2000)">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="927.50" y="231.08" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="TYP" descriptor="Type" knotRange="COT">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="818.66" y="261.07" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="DSC" descriptor="Discovered" timeRange="timestamp_tz" dataRange="timestamp_tz">
+      <metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/>
+      <layout x="897.58" y="236.64" fixed="false"/>
+    </attribute>
+    <layout x="912.83" y="305.11" fixed="false"/>
+  </anchor>
+  <anchor mnemonic="CF" descriptor="Configuration" identity="int">
+    <metadata capsule="metadata" generator="true"/>
+    <attribute mnemonic="NAM" descriptor="Name" dataRange="varchar(255)">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="570.27" y="402.19" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="CNT" descriptor="Content" timeRange="timestamp_tz" dataRange="varchar(16777216)">
+      <metadata privacy="Ignore" capsule="metadata" checksum="true" restatable="false" idempotent="true" deletable="false"/>
+      <layout x="551.83" y="506.09" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="TYP" descriptor="Type" knotRange="CFT">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="496.70" y="447.29" fixed="false"/>
+    </attribute>
+    <layout x="611.15" y="463.34" fixed="false"/>
+  </anchor>
+  <anchor mnemonic="TP" descriptor="Template" identity="int">
+    <metadata capsule="metadata" generator="true"/>
+    <attribute mnemonic="NAM" descriptor="Name" dataRange="varchar(255)">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="395.00" y="305.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="CNT" descriptor="Content" timeRange="timestamp_tz" dataRange="varchar(16777216)">
+      <metadata privacy="Ignore" capsule="metadata" checksum="true" restatable="false" idempotent="true" deletable="false"/>
+      <layout x="356.00" y="245.00" fixed="false"/>
+    </attribute>
+    <layout x="437.00" y="287.00" fixed="false"/>
+  </anchor>
+  <anchor mnemonic="OP" descriptor="Operations" identity="int">
+    <metadata capsule="metadata" generator="true"/>
+    <attribute mnemonic="INS" descriptor="RowsInserted" timeRange="timestamp_tz" dataRange="int">
+      <metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/>
+      <layout x="1129.66" y="405.13" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="UPD" descriptor="RowsUpdated" timeRange="timestamp_tz" dataRange="int">
+      <metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/>
+      <layout x="1099.21" y="495.59" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="DEL" descriptor="RowsDeleted" timeRange="timestamp_tz" dataRange="int">
+      <metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/>
+      <layout x="1152.23" y="450.74" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="MRG" descriptor="RowsMerged" timeRange="timestamp_tz" dataRange="int">
+      <metadata privacy="Ignore" capsule="metadata" restatable="false" idempotent="true" deletable="false"/>
+      <layout x="1067.29" y="371.39" fixed="false"/>
+    </attribute>
+    <layout x="1057.39" y="445.25" fixed="false"/>
+  </anchor>
+  <tie>
+    <role role="operates" type="TR" identifier="true"/>
+    <role role="source" type="CO" identifier="true"/>
+    <role role="target" type="CO" identifier="true"/>
+    <role role="with" type="OP" identifier="false"/>
+    <metadata capsule="metadata" deletable="false" idempotent="true"/>
+    <layout x="913.71" y="426.34" fixed="false"/>
+  </tie>
+  <tie>
+    <role role="formed" type="TR" identifier="true"/>
+    <role role="from" type="CF" identifier="false"/>
+    <metadata capsule="metadata" deletable="false" idempotent="true"/>
+    <layout x="729.36" y="504.22" fixed="false"/>
+  </tie>
+  <tie>
+    <role role="uses" type="CF" identifier="true"/>
+    <role role="template" type="TP" identifier="false"/>
+    <metadata capsule="metadata" deletable="false" idempotent="true"/>
+    <layout x="522.00" y="344.00" fixed="false"/>
+  </tie>
+</schema>

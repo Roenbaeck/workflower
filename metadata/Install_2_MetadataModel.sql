@@ -97,6 +97,16 @@ CREATE TABLE IF NOT EXISTS metadata.CF_Configuration (
     )
 ) CLUSTER BY (CF_ID);
 -- Anchor table -------------------------------------------------------------------------------------------------------
+-- TP_Template table (with 2 attributes)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS metadata.TP_Template_ID_SEQ START 1 INCREMENT 1;
+CREATE TABLE IF NOT EXISTS metadata.TP_Template (
+    TP_ID int default metadata.TP_Template_ID_SEQ.nextval not null, 
+    constraint pkTP_Template primary key (
+        TP_ID
+    )
+) CLUSTER BY (TP_ID);
+-- Anchor table -------------------------------------------------------------------------------------------------------
 -- OP_Operations table (with 4 attributes)
 -----------------------------------------------------------------------------------------------------------------------
 CREATE SEQUENCE IF NOT EXISTS metadata.OP_Operations_ID_SEQ START 1 INCREMENT 1;
@@ -237,6 +247,35 @@ CREATE TABLE IF NOT EXISTS metadata.CF_TYP_Configuration_Type (
         CF_TYP_CF_ID
     )
 ) CLUSTER BY (CF_TYP_CF_ID);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- TP_NAM_Template_Name table (on TP_Template)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.TP_NAM_Template_Name (
+    TP_NAM_TP_ID int not null,
+    TP_NAM_Template_Name varchar(255) not null,
+    constraint fkTP_NAM_Template_Name foreign key (
+        TP_NAM_TP_ID
+    ) references metadata.TP_Template(TP_ID),
+    constraint pkTP_NAM_Template_Name primary key (
+        TP_NAM_TP_ID
+    )
+) CLUSTER BY (TP_NAM_TP_ID);
+-- Historized attribute table -----------------------------------------------------------------------------------------
+-- TP_CNT_Template_Content table (on TP_Template)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.TP_CNT_Template_Content (
+    TP_CNT_TP_ID int not null,
+    TP_CNT_Template_Content varchar(16777216) not null,
+    TP_CNT_Checksum numeric(19,0) default hash(TP_CNT_Template_Content),
+    TP_CNT_ChangedAt timestamp_tz not null,
+    constraint fkTP_CNT_Template_Content foreign key (
+        TP_CNT_TP_ID
+    ) references metadata.TP_Template(TP_ID),
+    constraint pkTP_CNT_Template_Content primary key (
+        TP_CNT_TP_ID,
+        TP_CNT_ChangedAt
+    )
+) CLUSTER BY (TP_CNT_TP_ID, TP_CNT_ChangedAt);
 -- Historized attribute table -----------------------------------------------------------------------------------------
 -- OP_INS_Operations_RowsInserted table (on OP_Operations)
 -----------------------------------------------------------------------------------------------------------------------
@@ -355,6 +394,25 @@ CREATE TABLE IF NOT EXISTS metadata.TR_formed_CF_from (
     TR_ID_formed,
     CF_ID_from
 );
+-- Knotted static tie table -------------------------------------------------------------------------------------------
+-- CF_uses_TP_template table (having 2 roles)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.CF_uses_TP_template (
+    CF_ID_uses int not null, 
+    TP_ID_template int not null, 
+    constraint CF_uses_TP_template_fkCF_uses foreign key (
+        CF_ID_uses
+    ) references metadata.CF_Configuration(CF_ID), 
+    constraint CF_uses_TP_template_fkTP_template foreign key (
+        TP_ID_template
+    ) references metadata.TP_Template(TP_ID), 
+    constraint pkCF_uses_TP_template primary key (
+        CF_ID_uses
+    )
+) CLUSTER BY (
+    CF_ID_uses,
+    TP_ID_template
+);
 -- KNOT EQUIVALENCE VIEWS ---------------------------------------------------------------------------------------------
 --
 -- Equivalence views combine the identity and equivalent parts of a knot into a single view, making
@@ -424,6 +482,31 @@ $$
         metadata.CF_CNT_Configuration_Content
     WHERE
         CF_CNT_ChangedAt <= changingTimepoint
+$$
+;
+-- Attribute rewinder -------------------------------------------------------------------------------------------------
+-- rTP_CNT_Template_Content rewinding over changing time function
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.rTP_CNT_Template_Content (
+    changingTimepoint timestamp_tz
+)
+RETURNS TABLE (
+    TP_CNT_TP_ID int,
+    TP_CNT_Checksum numeric(19,0),
+    TP_CNT_Template_Content varchar(16777216),
+    TP_CNT_ChangedAt timestamp_tz
+)
+AS
+$$
+    SELECT
+        TP_CNT_TP_ID,
+        TP_CNT_Checksum,
+        TP_CNT_Template_Content,
+        TP_CNT_ChangedAt
+    FROM
+        metadata.TP_CNT_Template_Content
+    WHERE
+        TP_CNT_ChangedAt <= changingTimepoint
 $$
 ;
 -- Attribute rewinder -------------------------------------------------------------------------------------------------
@@ -603,7 +686,7 @@ AS
 SELECT
     *
 FROM
-    TABLE(metadata.pTR_TaskRun(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::timestamp_tz))
+    TABLE(metadata.pTR_TaskRun(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
 ;
 -- Latest perspective -------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------
@@ -709,7 +792,7 @@ AS
 SELECT
     *
 FROM
-    TABLE(metadata.pCO_Container(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::timestamp_tz))
+    TABLE(metadata.pCO_Container(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
 ;
 -- Difference perspective ---------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------
@@ -863,7 +946,7 @@ AS
 SELECT
     *
 FROM
-    TABLE(metadata.pCF_Configuration(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::timestamp_tz))
+    TABLE(metadata.pCF_Configuration(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
 ;
 -- Difference perspective ---------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------
@@ -910,6 +993,131 @@ AND
     hCNT.CF_CNT_ChangedAt BETWEEN intervalStart AND intervalEnd
 AND
     pCF.CF_ID = hCNT.CF_CNT_CF_ID
+$$
+;
+-- Latest perspective -------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.lTP_Template AS
+SELECT
+    TP.TP_ID,
+    NAM.TP_NAM_TP_ID,
+    NAM.TP_NAM_Template_Name,
+    CNT.TP_CNT_TP_ID,
+    CNT.TP_CNT_ChangedAt,
+    CNT.TP_CNT_Checksum,
+    CNT.TP_CNT_Template_Content
+FROM
+    metadata.TP_Template TP
+LEFT JOIN
+    metadata.TP_NAM_Template_Name NAM
+ON
+    NAM.TP_NAM_TP_ID = TP.TP_ID
+LEFT JOIN
+    metadata.TP_CNT_Template_Content CNT
+ON
+    CNT.TP_CNT_TP_ID = TP.TP_ID
+AND
+    CNT.TP_CNT_ChangedAt = (
+        SELECT
+            max(sub.TP_CNT_ChangedAt)
+        FROM
+            metadata.TP_CNT_Template_Content sub
+        WHERE
+            sub.TP_CNT_TP_ID = TP.TP_ID
+   );
+-- Point-in-time perspective ------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.pTP_Template (
+    changingTimepoint timestamp_tz
+)
+RETURNS TABLE (
+    TP_ID int,
+    TP_NAM_TP_ID int,
+    TP_NAM_Template_Name varchar(255),
+    TP_CNT_TP_ID int,
+    TP_CNT_ChangedAt timestamp_tz,
+    TP_CNT_Checksum numeric(19,0),
+    TP_CNT_Template_Content varchar(16777216)
+)
+AS
+$$
+SELECT
+    TP.TP_ID,
+    NAM.TP_NAM_TP_ID,
+    NAM.TP_NAM_Template_Name,
+    CNT.TP_CNT_TP_ID,
+    CNT.TP_CNT_ChangedAt,
+    CNT.TP_CNT_Checksum,
+    CNT.TP_CNT_Template_Content
+FROM
+    metadata.TP_Template TP
+LEFT JOIN
+    metadata.TP_NAM_Template_Name NAM
+ON
+    NAM.TP_NAM_TP_ID = TP.TP_ID
+LEFT JOIN
+    TABLE(metadata.rTP_CNT_Template_Content(changingTimepoint::timestamp_tz)) CNT
+ON
+    CNT.TP_CNT_TP_ID = TP.TP_ID
+AND
+    CNT.TP_CNT_ChangedAt = (
+        SELECT
+            max(sub.TP_CNT_ChangedAt)
+        FROM
+            TABLE(metadata.rTP_CNT_Template_Content(changingTimepoint::timestamp_tz)) sub
+        WHERE
+            sub.TP_CNT_TP_ID = TP.TP_ID
+   )
+$$
+;
+-- Now perspective ----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.nTP_Template
+AS
+SELECT
+    *
+FROM
+    TABLE(metadata.pTP_Template(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
+;
+-- Difference perspective ---------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.dTP_Template (
+    intervalStart timestamp_tz,
+    intervalEnd timestamp_tz,
+    selection string
+)
+RETURNS TABLE (
+    inspectedTimepoint timestamp_tz,
+    mnemonic string,
+    TP_ID int,
+    TP_NAM_TP_ID int,
+    TP_NAM_Template_Name varchar(255),
+    TP_CNT_TP_ID int,
+    TP_CNT_ChangedAt timestamp_tz,
+    TP_CNT_Checksum numeric(19,0),
+    TP_CNT_Template_Content varchar(16777216)
+)
+AS
+$$
+SELECT DISTINCT
+    hCNT.TP_CNT_ChangedAt::timestamp_tz AS inspectedTimepoint,
+    'CNT' AS mnemonic,
+    pTP.TP_ID,
+    pTP.TP_NAM_TP_ID,
+    pTP.TP_NAM_Template_Name,
+    pTP.TP_CNT_TP_ID,
+    pTP.TP_CNT_ChangedAt,
+    pTP.TP_CNT_Checksum,
+    pTP.TP_CNT_Template_Content
+FROM
+    metadata.TP_CNT_Template_Content hCNT,
+    TABLE(metadata.pTP_Template(hCNT.TP_CNT_ChangedAt::timestamp_tz)) pTP
+WHERE
+    (selection IS NULL OR selection LIKE '%CNT%')
+AND
+    hCNT.TP_CNT_ChangedAt BETWEEN intervalStart AND intervalEnd
+AND
+    pTP.TP_ID = hCNT.TP_CNT_TP_ID
 $$
 ;
 -- Latest perspective -------------------------------------------------------------------------------------------------
@@ -1082,7 +1290,7 @@ AS
 SELECT
     *
 FROM
-    TABLE(metadata.pOP_Operations(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::timestamp_tz))
+    TABLE(metadata.pOP_Operations(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
 ;
 -- Difference perspective ---------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------
@@ -1264,7 +1472,7 @@ CREATE OR REPLACE VIEW metadata.nTR_operates_CO_source_CO_target_OP_with AS
 SELECT
     *
 FROM
-    TABLE(metadata.pTR_operates_CO_source_CO_target_OP_with(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::timestamp_tz))
+    TABLE(metadata.pTR_operates_CO_source_CO_target_OP_with(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
 ;
 -- Latest perspective -------------------------------------------------------------------------------------------------
 -----------------------------------------------------------------------------------------------------------------------
@@ -1299,6 +1507,41 @@ CREATE OR REPLACE VIEW metadata.nTR_formed_CF_from AS
 SELECT
     *
 FROM
-    TABLE(metadata.pTR_formed_CF_from(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::timestamp_tz))
+    TABLE(metadata.pTR_formed_CF_from(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
+;
+-- Latest perspective -------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.lCF_uses_TP_template AS
+SELECT
+    tie.CF_ID_uses,
+    tie.TP_ID_template
+FROM
+    metadata.CF_uses_TP_template tie
+;
+-- Point-in-time perspective ------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.pCF_uses_TP_template (
+    changingTimepoint timestamp_tz
+)
+RETURNS TABLE (
+    CF_ID_uses int,
+    TP_ID_template int
+)
+AS
+$$
+SELECT
+    tie.CF_ID_uses,
+    tie.TP_ID_template
+FROM
+    metadata.CF_uses_TP_template tie
+$$
+;
+-- Now perspective ----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.nCF_uses_TP_template AS
+SELECT
+    *
+FROM
+    TABLE(metadata.pCF_uses_TP_template(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
 ;
 -- DESCRIPTIONS -------------------------------------------------------------------------------------------------------

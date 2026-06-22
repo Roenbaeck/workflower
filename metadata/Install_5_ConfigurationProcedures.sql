@@ -1,19 +1,21 @@
 /*
-    CREATE CONFIGURATION MANAGEMENT PROCEDURES
+    CREATE CONFIGURATION AND TEMPLATE MANAGEMENT PROCEDURES
 
-    Store and manage workflow JSON definitions in the metadata
-    CF_Configuration anchor, using the same model as the SQL Server
-    version's workflow.xml storage.
+    Store and manage workflow JSON definitions and Sisula templates
+    in the metadata model.
 */
 
 -- ============================================================
 -- UPSERT CONFIGURATION
 -- ============================================================
 
+DROP PROCEDURE IF EXISTS metadata._ConfigurationUpsert(VARCHAR, VARCHAR, VARCHAR);
+
 CREATE OR REPLACE PROCEDURE metadata._ConfigurationUpsert(
     CONFIG_NAME VARCHAR,
     CONFIG_CONTENT VARCHAR,
-    CONFIG_TYPE VARCHAR DEFAULT 'Workflow'
+    CONFIG_TYPE VARCHAR DEFAULT 'Workflow',
+    TEMPLATE_NAME VARCHAR DEFAULT 'CreateTaskGraph'
 )
 RETURNS INT
 LANGUAGE SQL
@@ -22,10 +24,18 @@ $$
 BEGIN
     LET cf_id INT;
     LET cft_id TINYINT;
+    LET tp_id INT;
     LET now_ts TIMESTAMP_TZ := SYSDATE();
 
     -- Look up configuration type knot
     SELECT CFT_ID INTO :cft_id FROM metadata.CFT_ConfigurationType WHERE CFT_ConfigurationType = :CONFIG_TYPE;
+
+    IF (:TEMPLATE_NAME IS NOT NULL) THEN
+        SELECT tp.TP_ID INTO :tp_id
+        FROM metadata.TP_Template tp
+        JOIN metadata.TP_NAM_Template_Name nam ON nam.TP_NAM_TP_ID = tp.TP_ID
+        WHERE nam.TP_NAM_Template_Name = :TEMPLATE_NAME;
+    END IF;
 
     -- Find existing configuration by name
     SELECT cf.CF_ID INTO :cf_id
@@ -52,7 +62,124 @@ BEGIN
         VALUES (:cf_id, :CONFIG_CONTENT, :now_ts);
     END IF;
 
+    IF (:tp_id IS NOT NULL) THEN
+        DELETE FROM metadata.CF_uses_TP_template WHERE CF_ID_uses = :cf_id;
+        INSERT INTO metadata.CF_uses_TP_template (CF_ID_uses, TP_ID_template)
+        VALUES (:cf_id, :tp_id);
+    END IF;
+
     RETURN :cf_id;
+END;
+$$;
+
+-- ============================================================
+-- UPSERT TEMPLATE
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE metadata._TemplateUpsert(
+    TEMPLATE_NAME VARCHAR,
+    TEMPLATE_CONTENT VARCHAR
+)
+RETURNS INT
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    LET tp_id INT;
+    LET now_ts TIMESTAMP_TZ := SYSDATE();
+
+    SELECT tp.TP_ID INTO :tp_id
+    FROM metadata.TP_Template tp
+    JOIN metadata.TP_NAM_Template_Name nam ON nam.TP_NAM_TP_ID = tp.TP_ID
+    WHERE nam.TP_NAM_Template_Name = :TEMPLATE_NAME;
+
+    IF (:tp_id IS NULL) THEN
+        SELECT metadata.TP_Template_ID_SEQ.NEXTVAL INTO :tp_id;
+        INSERT INTO metadata.TP_Template (TP_ID) VALUES (:tp_id);
+
+        INSERT INTO metadata.TP_NAM_Template_Name (TP_NAM_TP_ID, TP_NAM_Template_Name)
+        VALUES (:tp_id, :TEMPLATE_NAME);
+    END IF;
+
+    INSERT INTO metadata.TP_CNT_Template_Content (TP_CNT_TP_ID, TP_CNT_Template_Content, TP_CNT_ChangedAt)
+    VALUES (:tp_id, :TEMPLATE_CONTENT, :now_ts);
+
+    RETURN :tp_id;
+END;
+$$;
+
+-- ============================================================
+-- GET TEMPLATE
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE metadata._TemplateGet(
+    TEMPLATE_NAME VARCHAR
+)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    LET result VARCHAR;
+
+    SELECT TP_CNT_Template_Content INTO :result
+    FROM metadata.lTP_Template
+    WHERE TP_NAM_Template_Name = :TEMPLATE_NAME;
+
+    RETURN :result;
+END;
+$$;
+
+-- ============================================================
+-- LIST TEMPLATES
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE metadata._TemplateList()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    LET result VARCHAR DEFAULT '';
+
+    SELECT LISTAGG(TP_NAM_Template_Name || ' | ' || TP_CNT_ChangedAt, '\n')
+    INTO :result
+    FROM metadata.lTP_Template
+    GROUP BY 1=1;
+
+    RETURN :result;
+END;
+$$;
+
+-- ============================================================
+-- DELETE TEMPLATE
+-- ============================================================
+
+CREATE OR REPLACE PROCEDURE metadata._TemplateDelete(
+    TEMPLATE_NAME VARCHAR
+)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    LET tp_id INT;
+
+    SELECT tp.TP_ID INTO :tp_id
+    FROM metadata.TP_Template tp
+    JOIN metadata.TP_NAM_Template_Name nam ON nam.TP_NAM_TP_ID = tp.TP_ID
+    WHERE nam.TP_NAM_Template_Name = :TEMPLATE_NAME;
+
+    IF (:tp_id IS NULL) THEN
+        RETURN 'Not found: ' || :TEMPLATE_NAME;
+    END IF;
+
+    DELETE FROM metadata.CF_uses_TP_template WHERE TP_ID_template = :tp_id;
+    DELETE FROM metadata.TP_CNT_Template_Content WHERE TP_CNT_TP_ID = :tp_id;
+    DELETE FROM metadata.TP_NAM_Template_Name WHERE TP_NAM_TP_ID = :tp_id;
+    DELETE FROM metadata.TP_Template WHERE TP_ID = :tp_id;
+
+    RETURN 'Deleted: ' || :TEMPLATE_NAME;
 END;
 $$;
 
@@ -122,6 +249,7 @@ BEGIN
         RETURN 'Not found: ' || :CONFIG_NAME;
     END IF;
 
+    DELETE FROM metadata.CF_uses_TP_template WHERE CF_ID_uses = :cf_id;
     DELETE FROM metadata.CF_CNT_Configuration_Content WHERE CF_CNT_CF_ID = :cf_id;
     DELETE FROM metadata.CF_TYP_Configuration_Type WHERE CF_TYP_CF_ID = :cf_id;
     DELETE FROM metadata.CF_NAM_Configuration_Name WHERE CF_NAM_CF_ID = :cf_id;

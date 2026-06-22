@@ -43,7 +43,7 @@ Use `docs/SISULA.md` as the primary language reference for the Snowflake Sisula 
 | Script | Purpose | Notes |
 |---|---|---|
 | `deploy.sh` | Deploys the Snowflake Sisula engine from `sql/deploy.sql`. | Requires the Snowflake CLI `snow` and a configured connection name. |
-| `deploy_metadata.sh` | Deploys the metadata schema and supporting procedures from `metadata/`. | Runs the install steps in order and stops on the first failure. |
+| `deploy_metadata.sh` | Deploys the metadata schema and supporting procedures from `metadata/`. | Runs the install steps in order, seeds `CreateTaskGraph` into metadata template storage, and stops on the first failure. |
 | `install.sh` | Renders workflow JSON files with a Sisula template and optionally deploys the generated SQL. | Default template is `CreateTaskGraph`; `--dry-run` writes SQL to `<directory>/rendered/`. |
 | `test_all.sh` | Runs the Snowflake SQL test suite in `sql/`. | Validates deployed behavior in Snowflake. |
 | `test_local.js` | Runs a local Node.js smoke test against `src/sisula.js`. | Fast check for parser and renderer behavior without Snowflake. |

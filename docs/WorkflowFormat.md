@@ -1,7 +1,7 @@
 # Workflow JSON format
 
 A workflow definition is a JSON document rendered by the `CreateTaskGraph` sisula template
-into `CREATE TASK` DDL. Store it via `metadata._ConfigurationUpsert` and deploy with
+from metadata-backed template storage into `CREATE TASK` DDL. Store it via `metadata._ConfigurationUpsert` and deploy with
 `./install.sh`.
 
 ## Top-level fields

@@ -1,4 +1,3 @@
-/*~
 -- ============================================================
 -- Task graph: $WORKFLOW$ $SOURCE$ $SYSTEM$
 -- Generated from sisula-snowflake template
@@ -112,4 +111,3 @@ ALTER TASK $task.name$ SUSPEND;
 $/ endif
 $/ endfor
 
-~*/

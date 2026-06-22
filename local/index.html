@@ -375,7 +375,9 @@ body { overflow: hidden; }
   transition: transform 0.15s, box-shadow 0.15s;
 }
 .actions button:hover { transform: translateY(-1px); }
+.actions button:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
 .actions .btn-save { background: linear-gradient(135deg, #31b24f 0%, #1f8f65 100%); color: #fff; box-shadow: 0 14px 26px rgba(31, 143, 101, 0.24); }
+.actions .btn-install { background: linear-gradient(135deg, #1b7bdc 0%, #1758a7 100%); color: #fff; box-shadow: 0 14px 26px rgba(23, 88, 167, 0.24); }
 .actions .btn-delete { background: linear-gradient(135deg, #d14842 0%, #b7202f 100%); color: #fff; margin-left: auto; box-shadow: 0 14px 26px rgba(183, 32, 47, 0.2); }
 .actions .btn-add-task { background: rgba(255,255,255,0.82); color: #233246; border: 1px solid rgba(35, 50, 70, 0.14); }
 /* JSON tab */
@@ -385,6 +387,83 @@ body { overflow: hidden; }
 #status.show { opacity: 1; }
 #status.success { background: rgba(231, 255, 237, 0.92); color: #1b7f44; }
 #status.error { background: rgba(255, 235, 233, 0.95); color: #b42318; }
+#install-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(10, 14, 20, 0.58);
+  backdrop-filter: blur(8px);
+  z-index: 140;
+}
+#install-modal.show { display: flex; }
+#install-modal-panel {
+  width: min(920px, 100%);
+  max-height: min(82vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(119, 237, 170, 0.16);
+  background: linear-gradient(180deg, #0f1724 0%, #0b111b 100%);
+  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.34);
+}
+#install-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  color: #edf7ff;
+}
+#install-modal-title {
+  font: 700 1rem/1.2 "SFMono-Regular", "Menlo", monospace;
+  letter-spacing: 0.01em;
+}
+#install-modal-state {
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  font: 700 0.74rem/1 "SFMono-Regular", "Menlo", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+#install-modal-state.running { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
+#install-modal-state.success { background: rgba(34, 197, 94, 0.16); color: #86efac; }
+#install-modal-state.error { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+#install-log {
+  margin: 0;
+  padding: 1rem 1.15rem 1.2rem;
+  overflow: auto;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 0.82rem/1.55 "SFMono-Regular", "Menlo", monospace;
+  color: #b8f7c6;
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+}
+#install-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.9rem 1.15rem 1.1rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+#install-modal-footer button {
+  padding: 0.68rem 1.05rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #edf7ff;
+  cursor: pointer;
+  font: 700 0.84rem/1 "Avenir Next", sans-serif;
+}
+#install-modal-footer button:disabled { opacity: 0.45; cursor: default; }
 /* Config textarea */
 .config-area { font: 0.8rem/1.4 "SFMono-Regular", "Menlo", monospace; resize: vertical; min-height: 72px; }
 
@@ -494,12 +573,25 @@ button[onclick="removeTask()"] {
     <div class="actions" id="actions" style="display:none;">
       <button class="btn-add-task" onclick="addTask()">+ Add task</button>
       <button class="btn-save" onclick="save()">Save to Snowflake</button>
+      <button class="btn-install" id="btn-install" onclick="install()">Install</button>
       <button class="btn-delete" onclick="del()">Delete</button>
     </div>
   </div>
 </div>
 
 <div id="status"></div>
+<div id="install-modal" aria-hidden="true">
+  <div id="install-modal-panel" role="dialog" aria-modal="true" aria-labelledby="install-modal-title">
+    <div id="install-modal-header">
+      <div id="install-modal-title">Install workflow</div>
+      <div id="install-modal-state">Idle</div>
+    </div>
+    <pre id="install-log"></pre>
+    <div id="install-modal-footer">
+      <button id="install-modal-close" type="button" onclick="closeInstallModal()">Close</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // extend helper - from modules/Inheritance.js
@@ -517,9 +609,11 @@ console.log("SCRIPT STARTED");
 // --- State ---
 let workflows = [];
 let current = null;        // workflow name
+let currentCfId = null;
 let data = null;           // parsed workflow JSON
 let selectedTask = 0;      // index into data.TASKS
 let dirty = false;
+let installing = false;
 let needsInitialLayout = false;
 let layoutState = { positions: {}, viewport: null };
 let nodeMap = {};          // id -> LayoutEngine Node
@@ -876,6 +970,7 @@ async function loadWorkflows() {
 async function loadWorkflow(name) {
   let wf = await api('/api/workflows/' + encodeURIComponent(name));
   current = wf.name;
+  currentCfId = wf.cf_id;
   data = JSON.parse(wf.content);
   data.TASKS = data.TASKS || [];
   loadLayoutState(current, extractLegacyLayout(data));
@@ -886,19 +981,91 @@ async function loadWorkflow(name) {
 }
 
 async function saveWorkflow() {
-  await api('/api/workflows/' + encodeURIComponent(current), {
+  let saved = await api('/api/workflows/' + encodeURIComponent(current), {
     method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(serializeWorkflow())
   });
+  current = saved.name;
+  currentCfId = saved.cf_id;
   dirty = false;
+  updateActionButtons();
   showStatus('Saved', 'success');
   loadWorkflows();
+}
+
+async function installWorkflow() {
+  if (installing) return;
+  if (!currentCfId || dirty || current === '__new__') {
+    showStatus('Install requires a saved, unmodified workflow', 'error');
+    return;
+  }
+
+  openInstallModal('Install ' + current);
+  appendInstallLog('> install workflow ' + current + ' (CF_ID=' + currentCfId + ')');
+  installing = true;
+  updateActionButtons();
+  let hadError = false;
+  try {
+    let response = await fetch('/api/workflows/' + encodeURIComponent(currentCfId) + '/install/stream', {
+      method: 'POST'
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    if (!response.body) {
+      throw new Error('Install stream is unavailable');
+    }
+
+    let reader = response.body.getReader();
+    let decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      let result = await reader.read();
+      buffer += decoder.decode(result.value || new Uint8Array(), { stream: !result.done });
+      let lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      lines.forEach((line) => {
+        if (!line) return;
+        appendInstallLog(line);
+        if (line.indexOf('[ERROR]') >= 0) hadError = true;
+      });
+      if (result.done) break;
+    }
+
+    let trailing = buffer.trim();
+    if (trailing) {
+      appendInstallLog(trailing);
+      if (trailing.indexOf('[ERROR]') >= 0) hadError = true;
+    }
+
+    if (hadError) {
+      setInstallModalState('error');
+      showStatus('Install failed', 'error');
+    } else {
+      setInstallModalState('success');
+      showStatus('Install completed', 'success');
+    }
+  } catch (e) {
+    hadError = true;
+    appendInstallLog('[ERROR] ' + e.message);
+    setInstallModalState('error');
+    showStatus(e.message, 'error');
+  } finally {
+    installing = false;
+    updateActionButtons();
+    let closeButton = getId('install-modal-close');
+    if (closeButton) closeButton.disabled = false;
+    if (!hadError) setInstallModalState('success');
+  }
 }
 
 async function deleteWorkflow() {
   if (!confirm('Delete "' + current + '"?')) return;
   clearLayoutState(current);
   await api('/api/workflows/' + encodeURIComponent(current), { method: 'DELETE' });
-  current = null; data = null;
+  current = null;
+  currentCfId = null;
+  data = null;
   showStatus('Deleted', 'success');
   loadWorkflows();
   hideEditor();
@@ -914,6 +1081,7 @@ function showEditor() {
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('editor').style.display = '';
   document.getElementById('actions').style.display = '';
+  updateActionButtons();
 }
 
 function hideEditor() {
@@ -929,10 +1097,11 @@ async function selectWorkflow(name) {
 
 function newWorkflow() {
   current = '__new__';
+  currentCfId = null;
   data = { WORKFLOW: 'NewWorkflow', WAREHOUSE: 'COMPUTE_WH', TASK_TIMEOUT: 3600000, MAX_FAILURES: 3, TASKS: [] };
   layoutState = { positions: {}, viewport: { ...DEFAULT_VIEWBOX } };
   selectedTask = 0;
-  dirty = true;
+  setDirty(true);
   needsInitialLayout = true;
   showEditor();
   renderSidebar();
@@ -944,6 +1113,59 @@ function showStatus(msg, type) {
   s.textContent = msg;
   s.className = 'show ' + (type || 'success');
   setTimeout(() => s.className = '', 2000);
+}
+
+function openInstallModal(title) {
+  let modal = getId('install-modal');
+  let titleEl = getId('install-modal-title');
+  let logEl = getId('install-log');
+  let closeButton = getId('install-modal-close');
+  if (titleEl) titleEl.textContent = title || 'Install workflow';
+  if (logEl) logEl.textContent = '';
+  if (closeButton) closeButton.disabled = true;
+  setInstallModalState('running');
+  if (modal) {
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closeInstallModal(force) {
+  if (installing && !force) return;
+  let modal = getId('install-modal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function setInstallModalState(state) {
+  let stateEl = getId('install-modal-state');
+  if (!stateEl) return;
+  stateEl.className = state ? state.toLowerCase() : '';
+  stateEl.id = 'install-modal-state';
+  stateEl.textContent = state || 'Idle';
+  stateEl.classList.add((state || 'idle').toLowerCase());
+}
+
+function appendInstallLog(line) {
+  let logEl = getId('install-log');
+  if (!logEl) return;
+  logEl.textContent += line + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setDirty(value) {
+  dirty = !!value;
+  updateActionButtons();
+}
+
+function updateActionButtons() {
+  let installButton = document.getElementById('btn-install');
+  if (!installButton) return;
+  let canInstall = !!data && !!currentCfId && current !== '__new__' && !dirty && !installing;
+  installButton.disabled = !canInstall;
+  installButton.textContent = installing ? 'Installing...' : 'Install';
+  installButton.title = canInstall ? 'Install tasks from the saved workflow definition' : 'Install is only available for a saved, unmodified workflow';
 }
 
 // --- Editor ---
@@ -960,6 +1182,7 @@ function renderEditor() {
   renderTaskButtons();
   renderGraph();
   switchTab('task');
+  updateActionButtons();
 }
 
 function renderMetrics() {
@@ -1158,7 +1381,9 @@ function updatePositions(markDirty) {
     }
   }
   persistLayoutState();
-  if (markDirty) dirty = true;
+  if (markDirty) {
+    setDirty(true);
+  }
 }
 
 function beginPanning(e) {
@@ -1368,7 +1593,7 @@ function syncTask() {
     t.after = Array.from(checks).filter(c => c.checked).map(c => ({name: c.value}));
     if (!t.after.length) t.after = null;
   }
-  dirty = true;
+  setDirty(true);
   renderTaskButtons();
   renderGraph();
 }
@@ -1379,7 +1604,7 @@ function syncForm() {
   data.TASK_TIMEOUT = parseInt(document.getElementById('wf-timeout').value) || 3600000;
   data.MAX_FAILURES = parseInt(document.getElementById('wf-max-fail').value) || 3;
   data.CONFIG = document.getElementById('wf-config').value || null;
-  dirty = true;
+  setDirty(true);
 }
 
 // --- Steps ---
@@ -1465,7 +1690,7 @@ function syncStep(i) {
   if (s.type === 'lineage') { s.source = getId(`s${i}-src`).value; s.target = getId(`s${i}-tgt`).value; }
   if (s.type === 'rows') ['inserted','updated','deleted','merged'].forEach(f => s[f] = parseInt(getId(`s${i}-${f}`).value)||0);
   if (s.type === 'return_value') s.message = getId(`s${i}-msg`).value;
-  dirty = true;
+  setDirty(true);
   renderStepsForm();
 }
 
@@ -1473,19 +1698,19 @@ function addStep() {
   let t = data.TASKS[selectedTask];
   t.steps = t.steps || [];
   t.steps.push({ type: 'proc', description: '' });
-  dirty = true;
+  setDirty(true);
   renderStepsForm();
 }
 
 function removeLastStep() {
   let t = data.TASKS[selectedTask];
-  if (t.steps && t.steps.length) { t.steps.pop(); dirty = true; renderStepsForm(); }
+  if (t.steps && t.steps.length) { t.steps.pop(); setDirty(true); renderStepsForm(); }
 }
 
 function addTask() {
   data.TASKS.push({ name: 'new_task', description: '', steps: [], after: [] });
   selectedTask = data.TASKS.length - 1;
-  dirty = true;
+  setDirty(true);
   LayoutEngine.equilibrium = false;
   renderEditor();
 }
@@ -1496,7 +1721,7 @@ function removeTask() {
   if (removed) delete layoutState.positions[taskId(removed, selectedTask)];
   persistLayoutState();
   selectedTask = Math.max(0, Math.min(selectedTask, data.TASKS.length - 1));
-  dirty = true;
+  setDirty(true);
   renderEditor();
 }
 
@@ -1512,6 +1737,8 @@ function save() {
   updatePositions(false);
   saveWorkflow();
 }
+
+function install() { installWorkflow(); }
 
 function del() { deleteWorkflow(); }
 
