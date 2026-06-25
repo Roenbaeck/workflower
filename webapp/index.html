@@ -1,0 +1,2032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Workflow Editor Offline</title>
+<style>
+:root {
+  --bg-ink: #17212f;
+  --bg-deep: #203144;
+  --bg-panel: rgba(255, 250, 243, 0.84);
+  --bg-panel-strong: rgba(255, 252, 247, 0.94);
+  --bg-soft: rgba(244, 236, 222, 0.72);
+  --bg-sidebar: linear-gradient(180deg, #1c2130 0%, #222838 42%, #171d29 100%);
+  --text-main: #1c2430;
+  --text-muted: #6b7280;
+  --text-soft: #8a94a5;
+  --line-soft: rgba(85, 69, 42, 0.14);
+  --line-strong: rgba(23, 33, 47, 0.16);
+  --accent: #2f8f83;
+  --accent-strong: #256f66;
+  --accent-warm: #c18b3c;
+  --danger: #c74d45;
+  --success: #2d9f57;
+  --graph-bg: radial-gradient(circle at top, rgba(78, 150, 189, 0.16), transparent 34%), linear-gradient(160deg, #171f2f 0%, #1d2439 44%, #111827 100%);
+  --shadow-soft: 0 24px 48px rgba(33, 26, 16, 0.14);
+  --shadow-card: 0 18px 32px rgba(20, 18, 15, 0.09);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.35);
+  --radius-xl: 26px;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  font: 14px/1.4 "Avenir Next", "Segoe UI Variable", "Helvetica Neue", sans-serif;
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at top left, rgba(193, 139, 60, 0.13), transparent 28%),
+    radial-gradient(circle at top right, rgba(47, 143, 131, 0.18), transparent 30%),
+    linear-gradient(180deg, #f5efe4 0%, #ede3d2 100%);
+}
+body { overflow: hidden; }
+#app {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  height: 100%;
+}
+#sidebar {
+  background: var(--bg-sidebar);
+  color: #e7e6eb;
+  padding: 1.5rem 1.15rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.04);
+}
+#sidebar h3 {
+  font: 700 1.9rem/1.05 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  color: #f4efe8;
+  letter-spacing: -0.04em;
+  margin-bottom: 0.35rem;
+}
+#sidebar button { width: 100%; padding: 0.8rem 1rem; border: none; border-radius: var(--radius-md); cursor: pointer; font: inherit; }
+#sidebar .btn-new {
+  background: linear-gradient(135deg, #31b24f 0%, #208b64 100%);
+  color: #f4fff4;
+  font-weight: 700;
+  font-size: 1rem;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 12px 24px rgba(22, 104, 59, 0.28);
+}
+#sidebar .btn-new:hover { transform: translateY(-1px); }
+.workflow-item {
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.94rem;
+  font-weight: 600;
+  color: #d8deeb;
+  transition: background 0.18s, transform 0.18s, color 0.18s;
+  border: 1px solid rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.03);
+}
+.workflow-item:hover { background: rgba(244, 239, 232, 0.11); transform: translateX(2px); }
+.workflow-item.active {
+  background: linear-gradient(135deg, rgba(118, 112, 171, 0.42), rgba(93, 112, 155, 0.52));
+  color: #fff8ed;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+}
+#main {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 1.2rem;
+  position: relative;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(193, 139, 60, 0.09), transparent 22%),
+    radial-gradient(circle at 88% 12%, rgba(47, 143, 131, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(253, 247, 238, 0.72), rgba(239, 230, 214, 0.9));
+}
+#main::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.34), transparent 22%, transparent 74%, rgba(255,255,255,0.18));
+}
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: rgba(28, 36, 48, 0.6);
+  font: 600 1.18rem/1.4 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  letter-spacing: 0.01em;
+}
+/* Top row: graph + properties */
+.top-row { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(290px, 0.9fr); gap: 1rem; padding: 0; min-height: 380px; }
+#editor { display: flex; flex-direction: column; gap: 1rem; position: relative; z-index: 1; }
+#graph-container {
+  background: var(--graph-bg);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  position: relative;
+  min-height: 360px;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 28px 52px rgba(16, 20, 33, 0.26);
+}
+#graph-container svg { width: 100%; height: 100%; display: block; }
+#graph-container::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(193, 139, 60, 0.09), transparent 22%),
+    radial-gradient(circle at 76% 78%, rgba(47, 143, 131, 0.12), transparent 22%);
+  pointer-events: none;
+}
+#graph-toolbar { position: absolute; top: 0.95rem; left: 1rem; display: flex; gap: 0.45rem; z-index: 2; flex-wrap: wrap; max-width: calc(100% - 2rem); }
+#graph-toolbar button {
+  padding: 0.42rem 0.82rem;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 999px;
+  background: rgba(14, 20, 33, 0.66);
+  color: #eff4fa;
+  cursor: pointer;
+  font: 600 0.75rem/1 "Avenir Next", "Segoe UI Variable", sans-serif;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+#graph-toolbar button:hover { background: rgba(28, 39, 61, 0.86); }
+#graph-toolbar button:disabled { opacity: 0.45; cursor: default; }
+#miniature {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  width: 190px;
+  height: 138px;
+  border-radius: 18px;
+  background: rgba(10, 16, 28, 0.72);
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 18px 30px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(10px);
+  z-index: 2;
+  overflow: hidden;
+}
+#miniature svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#miniature .mini-backdrop {
+  fill: rgba(255,255,255,0.02);
+}
+#miniature .mini-edge {
+  stroke: rgba(111, 188, 229, 0.52);
+  stroke-width: 1.35;
+  fill: none;
+}
+#miniature .mini-node {
+  fill: rgba(51, 133, 233, 0.24);
+  stroke: rgba(96, 165, 250, 0.88);
+  stroke-width: 1.3;
+}
+#miniature .mini-node.root {
+  fill: rgba(38, 122, 62, 0.8);
+  stroke: rgba(240, 180, 79, 0.92);
+}
+#miniature .mini-viewport {
+  fill: rgba(255,255,255,0.08);
+  stroke: rgba(255, 226, 178, 0.95);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+#miniature.dragging { cursor: move; }
+#graph-container .node-circle { cursor: pointer; transition: filter 0.15s; }
+#graph-container .node-circle:hover { filter: brightness(1.3); }
+#graph-container .node-selected { stroke: #ff6b6b !important; stroke-width: 4 !important; }
+#graph-container .node-fixation { fill: #f8fafc; stroke: #0f172a; stroke-width: 1; pointer-events: none; }
+#graph-container .node-label { fill: rgba(241, 245, 249, 0.92); font-size: 10px; font-family: "Avenir Next", sans-serif; }
+#graph-container .edge-line { stroke: rgba(103, 187, 227, 0.82); stroke-width: 1.5; fill: none; opacity: 0.6; }
+#graph-container .root-node { stroke: #f0b44f; stroke-width: 2.5; }
+/* Properties panel */
+#props {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1.2rem;
+  background: var(--bg-panel);
+  border: 1px solid rgba(255,255,255,0.46);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft), var(--shadow-inset);
+  backdrop-filter: blur(16px);
+}
+#props > label:first-child { margin-top: 0; }
+#props label, .form-group label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-top: 0.15rem;
+  display: block;
+}
+#props input, #props select, .form-group input, .form-group select, .form-group textarea, .config-area {
+  width: 100%;
+  padding: 0.72rem 0.82rem;
+  border: 1px solid rgba(35, 47, 63, 0.1);
+  border-radius: var(--radius-md);
+  font: inherit;
+  color: var(--text-main);
+  background: rgba(255,255,255,0.72);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
+}
+#props input:focus, #props select:focus, .form-group input:focus, .form-group select:focus, .form-group textarea:focus, .config-area:focus {
+  outline: none;
+  border-color: rgba(47, 143, 131, 0.5);
+  box-shadow: 0 0 0 3px rgba(47, 143, 131, 0.13);
+  background: rgba(255,255,255,0.92);
+}
+/* Metrics */
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.85rem; padding: 0; }
+.metric {
+  background: linear-gradient(180deg, rgba(255,253,249,0.82), rgba(247, 239, 226, 0.74));
+  border: 1px solid rgba(255,255,255,0.48);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1rem 0.95rem;
+  text-align: center;
+  box-shadow: var(--shadow-card), var(--shadow-inset);
+}
+.metric .value { font: 700 2rem/1 "Avenir Next", "Helvetica Neue", sans-serif; letter-spacing: -0.05em; color: #213042; }
+.metric .label { font-size: 0.76rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; margin-top: 0.2rem; }
+/* Task buttons */
+.task-buttons {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.1rem 0;
+  flex-wrap: wrap;
+}
+.task-btn {
+  padding: 0.55rem 0.95rem;
+  border: 1px solid rgba(42, 56, 77, 0.12);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.66);
+  cursor: pointer;
+  font: 600 0.88rem/1 "Avenir Next", sans-serif;
+  color: #304153;
+  transition: all 0.15s;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+}
+.task-btn:hover { background: rgba(255,255,255,0.9); border-color: rgba(47, 143, 131, 0.25); }
+.task-btn.active {
+  background: linear-gradient(135deg, #3b9ea0 0%, #286f83 100%);
+  color: #f7fcfc;
+  border-color: rgba(31, 79, 93, 0.3);
+  font-weight: 700;
+  box-shadow: 0 12px 24px rgba(43, 95, 103, 0.18);
+}
+/* Tabs */
+.tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0.35rem;
+  gap: 0.25rem;
+  background: rgba(255,252,247,0.58);
+  border: 1px solid rgba(255,255,255,0.46);
+  border-radius: 999px;
+  box-shadow: var(--shadow-card), var(--shadow-inset);
+}
+.tab {
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+  border-bottom: 0;
+  border-radius: 999px;
+  color: var(--text-muted);
+  transition: all 0.15s;
+  font-weight: 600;
+}
+.tab:hover { color: var(--accent-strong); }
+.tab.active {
+  background: linear-gradient(135deg, rgba(47, 143, 131, 0.16), rgba(35, 87, 123, 0.14));
+  color: var(--accent-strong);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+}
+.tab-content {
+  padding: 1.35rem;
+  display: none;
+  background: var(--bg-panel-strong);
+  border: 1px solid rgba(255,255,255,0.52);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft), var(--shadow-inset);
+}
+.tab-content.active { display: block; }
+/* Form grid */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.form-grid.full { grid-template-columns: 1fr; }
+.form-group { display: flex; flex-direction: column; gap: 0.35rem; }
+.form-group textarea { resize: vertical; min-height: 84px; }
+.check-option {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: nowrap;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 0.95rem !important;
+  color: var(--text-main) !important;
+  margin-top: 0 !important;
+  line-height: 1.2;
+}
+.check-option input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  flex: 0 0 auto;
+}
+#f-after {
+  display: grid;
+  gap: 0.45rem;
+  padding-top: 0.2rem;
+}
+/* Steps */
+.step { border: 1px solid rgba(37, 48, 62, 0.12); border-radius: var(--radius-lg); margin-bottom: 0.75rem; overflow: hidden; background: rgba(255,255,255,0.58); box-shadow: inset 0 1px 0 rgba(255,255,255,0.55); }
+.step-header { display: flex; align-items: center; gap: 0.6rem; padding: 0.85rem 0.95rem; cursor: pointer; background: rgba(240, 233, 219, 0.62); }
+.step-header:hover { background: rgba(235, 228, 214, 0.86); }
+.step-header .badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+.step-body { padding: 0.95rem; display: none; }
+.step.open .step-body { display: block; }
+.badge-proc { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; }
+.badge-sql { background: rgba(34, 197, 94, 0.14); color: #166534; }
+.badge-lineage { background: rgba(245, 158, 11, 0.18); color: #9a5b00; }
+.badge-rows { background: rgba(14, 165, 233, 0.15); color: #0f5f88; }
+.badge-return_value { background: rgba(239, 68, 68, 0.12); color: #b42318; }
+/* Buttons at bottom */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+  border-top: 1px solid var(--line-soft);
+  background: rgba(255, 249, 240, 0.72);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card), var(--shadow-inset);
+}
+.actions button {
+  padding: 0.8rem 1.35rem;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font: 700 1rem/1 "Avenir Next", sans-serif;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.actions button:hover { transform: translateY(-1px); }
+.actions button:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
+.actions .btn-save { background: linear-gradient(135deg, #31b24f 0%, #1f8f65 100%); color: #fff; box-shadow: 0 14px 26px rgba(31, 143, 101, 0.24); }
+.actions .btn-render { background: linear-gradient(135deg, #1b7bdc 0%, #1758a7 100%); color: #fff; box-shadow: 0 14px 26px rgba(23, 88, 167, 0.24); }
+.actions .btn-export { background: rgba(255,255,255,0.82); color: #233246; border: 1px solid rgba(35, 50, 70, 0.14); }
+.actions .btn-delete { background: linear-gradient(135deg, #d14842 0%, #b7202f 100%); color: #fff; margin-left: auto; box-shadow: 0 14px 26px rgba(183, 32, 47, 0.2); }
+.actions .btn-add-task { background: rgba(255,255,255,0.82); color: #233246; border: 1px solid rgba(35, 50, 70, 0.14); }
+/* JSON tab */
+#tab-json pre, #tab-sql pre { background: rgba(246, 239, 226, 0.72); border: 1px solid rgba(35,50,70,0.08); border-radius: var(--radius-lg); padding: 1rem; font-size: 0.82rem; overflow-x: auto; max-height: 400px; overflow-y: auto; color: #304153; white-space: pre-wrap; }
+/* Status */
+#status { position: fixed; bottom: 1rem; right: 1rem; padding: 0.75rem 1rem; border-radius: 999px; font-size: 0.82rem; font-weight: 700; opacity: 0; transition: opacity 0.3s; z-index: 100; box-shadow: 0 18px 34px rgba(26, 28, 34, 0.18); }
+#status.show { opacity: 1; }
+#status.success { background: rgba(231, 255, 237, 0.92); color: #1b7f44; }
+#status.error { background: rgba(255, 235, 233, 0.95); color: #b42318; }
+#install-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(10, 14, 20, 0.58);
+  backdrop-filter: blur(8px);
+  z-index: 140;
+}
+#install-modal.show { display: flex; }
+#install-modal-panel {
+  width: min(920px, 100%);
+  max-height: min(82vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(119, 237, 170, 0.16);
+  background: linear-gradient(180deg, #0f1724 0%, #0b111b 100%);
+  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.34);
+}
+#install-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  color: #edf7ff;
+}
+#install-modal-title {
+  font: 700 1rem/1.2 "SFMono-Regular", "Menlo", monospace;
+  letter-spacing: 0.01em;
+}
+#install-modal-state {
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  font: 700 0.74rem/1 "SFMono-Regular", "Menlo", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+#install-modal-state.running { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
+#install-modal-state.success { background: rgba(34, 197, 94, 0.16); color: #86efac; }
+#install-modal-state.error { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+#install-log {
+  margin: 0;
+  padding: 1rem 1.15rem 1.2rem;
+  overflow: auto;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 0.82rem/1.55 "SFMono-Regular", "Menlo", monospace;
+  color: #b8f7c6;
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+}
+#install-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.9rem 1.15rem 1.1rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+#install-modal-footer button {
+  padding: 0.68rem 1.05rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #edf7ff;
+  cursor: pointer;
+  font: 700 0.84rem/1 "Avenir Next", sans-serif;
+}
+#install-modal-footer button:disabled { opacity: 0.45; cursor: default; }
+/* Config textarea */
+.config-area { font: 0.8rem/1.4 "SFMono-Regular", "Menlo", monospace; resize: vertical; min-height: 72px; }
+
+button[onclick="removeTask()"] {
+  margin-top: 0.75rem !important;
+  color: var(--danger) !important;
+  border: 1px solid rgba(199, 77, 69, 0.28) !important;
+  background: rgba(255, 245, 243, 0.76) !important;
+  padding: 0.55rem 0.9rem !important;
+  border-radius: 999px !important;
+  font-weight: 700;
+}
+
+#workflow-list { display: flex; flex-direction: column; gap: 0.55rem; }
+.sidebar-tools { display: flex; flex-direction: column; gap: 0.55rem; margin-top: 0.85rem; }
+#sidebar .btn-utility {
+  width: 100%;
+  padding: 0.72rem 0.9rem;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.06);
+  color: #eef3fb;
+  cursor: pointer;
+  text-align: left;
+  font: 600 0.9rem/1.2 "Avenir Next", "Segoe UI Variable", sans-serif;
+}
+#sidebar .btn-utility:hover { background: rgba(255,255,255,0.12); }
+.sidebar-note {
+  color: #b8c2d5;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 1180px) {
+  #app { grid-template-columns: 220px minmax(0, 1fr); }
+  .top-row { grid-template-columns: 1fr; }
+  #props { order: -1; }
+}
+
+@media (max-width: 900px) {
+  body { overflow: auto; }
+  #app { grid-template-columns: 1fr; height: auto; min-height: 100%; }
+  #sidebar { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  #main { padding: 1rem; }
+  .metrics { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr; }
+  .actions { flex-wrap: wrap; }
+  .actions .btn-delete { margin-left: 0; }
+}
+
+@media (max-width: 640px) {
+  #sidebar h3 { font-size: 1.55rem; }
+  #graph-toolbar { right: 0.75rem; left: 0.75rem; }
+  #miniature {
+    width: 150px;
+    height: 110px;
+    right: 0.75rem;
+    bottom: 0.75rem;
+  }
+  .tab-content { padding: 1rem; }
+  .task-btn { width: 100%; justify-content: center; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <h3>Workflows</h3>
+    <button class="btn-new" onclick="newWorkflow()">+ New workflow</button>
+    <div class="sidebar-tools">
+      <button class="btn-utility" type="button" onclick="triggerWorkflowImport()">Import workflow JSON</button>
+      <button class="btn-utility" type="button" onclick="triggerTemplateLoad()">Load template file</button>
+      <div class="sidebar-note" id="template-status">Template: not loaded</div>
+      <div class="sidebar-note">In browser-only mode, choose the sibling CreateTaskGraph.sisula file once after opening this page.</div>
+    </div>
+    <div id="workflow-list" style="margin-top:0.5rem;"></div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="empty-state" class="empty-state">Select a workflow from the sidebar or create a new one.</div>
+
+    <div id="editor" style="display:none;">
+      <!-- Top row: graph + properties -->
+      <div class="top-row">
+        <div id="graph-container">
+          <div id="graph-toolbar">
+            <button type="button" onclick="relayoutGraph()">Relayout</button>
+            <button type="button" id="btn-layout-toggle" onclick="toggleLayoutEngine()">Play</button>
+            <button type="button" id="btn-release-fixed" onclick="releaseFixedNodes()">Release fixed</button>
+            <button type="button" onclick="resetViewport()">Reset view</button>
+          </div>
+          <div id="miniature">
+            <svg id="mini-svg" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet" aria-label="Graph navigator"></svg>
+          </div>
+        </div>
+        <div id="props">
+          <label>Workflow Properties</label>
+          <label for="wf-name">Workflow name</label>
+          <input id="wf-name" placeholder="Workflow name" oninput="syncForm()"/>
+          <label for="wf-wh">Warehouse</label>
+          <input id="wf-wh" placeholder="Warehouse" oninput="syncForm()"/>
+          <label for="wf-timeout">Task timeout (ms)</label>
+          <input id="wf-timeout" type="number" placeholder="Timeout (ms)" oninput="syncForm()"/>
+          <label for="wf-max-fail">Max failures</label>
+          <input id="wf-max-fail" type="number" placeholder="Max failures" oninput="syncForm()"/>
+          <label for="wf-config">Shared task config (JSON)</label>
+          <textarea id="wf-config" class="config-area" placeholder="Shared task config JSON (optional)" oninput="syncForm()" rows="2"></textarea>
+        </div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metrics" id="metrics"></div>
+
+      <!-- Task select buttons -->
+      <div class="task-buttons" id="task-buttons"></div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('task')">Task Properties</div>
+        <div class="tab" onclick="switchTab('steps')">Steps</div>
+        <div class="tab" onclick="switchTab('json')">JSON</div>
+        <div class="tab" onclick="switchTab('sql')">SQL</div>
+      </div>
+      <div class="tab-content active" id="tab-task"></div>
+      <div class="tab-content" id="tab-steps"></div>
+      <div class="tab-content" id="tab-json"><pre id="json-preview"></pre></div>
+      <div class="tab-content" id="tab-sql"><pre id="sql-preview">Load CreateTaskGraph.sisula from this folder, then click Render SQL.</pre></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions" id="actions" style="display:none;">
+      <button class="btn-add-task" onclick="addTask()">+ Add task</button>
+      <button class="btn-save" id="btn-save-local" onclick="saveLocal()">Save locally</button>
+      <button class="btn-export" id="btn-export-json" onclick="exportJson()">Export JSON</button>
+      <button class="btn-render" id="btn-render-sql" onclick="renderSql()">Render SQL</button>
+      <button class="btn-export" id="btn-export-sql" onclick="exportSql()">Export SQL</button>
+      <button class="btn-delete" id="btn-delete-workflow" onclick="deleteLocal()">Delete local</button>
+    </div>
+  </div>
+</div>
+
+<div id="status"></div>
+<input id="workflow-import-input" type="file" accept=".json,application/json" onchange="importWorkflowFile(event)" hidden>
+<input id="template-file-input" type="file" accept=".sisula,.sql,text/plain" onchange="importTemplateFile(event)" hidden>
+<div id="install-modal" aria-hidden="true">
+  <div id="install-modal-panel" role="dialog" aria-modal="true" aria-labelledby="install-modal-title">
+    <div id="install-modal-header">
+      <div id="install-modal-title">Install workflow</div>
+      <div id="install-modal-state">Idle</div>
+    </div>
+    <pre id="install-log"></pre>
+    <div id="install-modal-footer">
+      <button id="install-modal-close" type="button" onclick="closeInstallModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// extend helper - from modules/Inheritance.js
+function extend(type, supertype){
+    for(var member in supertype.prototype)
+        if(!type.prototype[member])
+            type.prototype[member] = supertype.prototype[member];
+}
+</script>
+<script src="LayoutEngine.js"></script>
+<script src="sisula.js"></script>
+<script>console.log("SANITY CHECK - after LayoutEngine");</script>
+<script>
+console.log("SCRIPT STARTED");
+
+// --- State ---
+let workflows = [];
+let current = null;        // workflow name
+let currentCfId = null;
+let data = null;           // parsed workflow JSON
+let selectedTask = 0;      // index into data.TASKS
+let dirty = false;
+let installing = false;
+let needsInitialLayout = false;
+let layoutState = { positions: {}, viewport: null };
+let nodeMap = {};          // id -> LayoutEngine Node
+let nodes = [];            // all nodes (tasks + edges)
+let edges = [];            // edge objects
+let svgEl, svgNS;
+let miniSvgEl;
+let panState = { active: false, lastX: 0, lastY: 0, scaleX: 1, scaleY: 1 };
+let miniNavState = { active: false, lastX: 0, lastY: 0, scaleX: 1, scaleY: 1 };
+let templateText = '';
+let templateName = '';
+let lastRenderedSql = '';
+
+const DEFAULT_VIEWBOX = { x: 0, y: 0, width: 800, height: 450 };
+const WORKFLOW_INDEX_KEY = 'sisula-webapp:workflow-index';
+const TEMPLATE_TEXT_KEY = 'sisula-webapp:template-text';
+const TEMPLATE_NAME_KEY = 'sisula-webapp:template-name';
+const SQL_PLACEHOLDER = 'Load CreateTaskGraph.sisula from this folder, then click Render SQL.';
+
+function taskId(task, index) {
+  return task.name || ('task_' + index);
+}
+
+function layoutStorageKey(name) {
+  let workflowName = name && name !== '__new__' ? name : (data && data.WORKFLOW) || 'NewWorkflow';
+  return 'workflow-editor-layout:' + workflowName;
+}
+
+function workflowStorageKey(name) {
+  return 'sisula-webapp:workflow:' + name;
+}
+
+function normalizeWorkflowName(name) {
+  return (name || '').trim();
+}
+
+function workflowDownloadName(extension) {
+  let base = normalizeWorkflowName((data && data.WORKFLOW) || current || 'workflow') || 'workflow';
+  return base + extension;
+}
+
+function loadStoredWorkflowNames() {
+  try {
+    let raw = window.localStorage.getItem(WORKFLOW_INDEX_KEY);
+    let names = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(names)) return [];
+    return names.filter((name) => typeof name === 'string' && name.trim().length > 0).sort((left, right) => left.localeCompare(right));
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveStoredWorkflowNames(names) {
+  let uniqueNames = Array.from(new Set((names || []).map(normalizeWorkflowName).filter(Boolean))).sort((left, right) => left.localeCompare(right));
+  window.localStorage.setItem(WORKFLOW_INDEX_KEY, JSON.stringify(uniqueNames));
+}
+
+function renameStoredLayout(previousName, nextName) {
+  if (!previousName || !nextName || previousName === nextName) return;
+  try {
+    let oldKey = 'workflow-editor-layout:' + previousName;
+    let newKey = 'workflow-editor-layout:' + nextName;
+    let raw = window.localStorage.getItem(oldKey);
+    if (raw && !window.localStorage.getItem(newKey)) {
+      window.localStorage.setItem(newKey, raw);
+    }
+    window.localStorage.removeItem(oldKey);
+  } catch (e) {
+    // ignore storage failures
+  }
+}
+
+function loadCachedTemplate() {
+  try {
+    templateText = window.localStorage.getItem(TEMPLATE_TEXT_KEY) || '';
+    templateName = window.localStorage.getItem(TEMPLATE_NAME_KEY) || '';
+  } catch (e) {
+    templateText = '';
+    templateName = '';
+  }
+  updateTemplateStatus();
+}
+
+function updateTemplateStatus() {
+  let status = getId('template-status');
+  if (!status) return;
+  status.textContent = templateText ? 'Template: ' + templateName : 'Template: not loaded';
+}
+
+function cacheTemplate(text, name) {
+  templateText = text || '';
+  templateName = name || '';
+  try {
+    if (templateText) {
+      window.localStorage.setItem(TEMPLATE_TEXT_KEY, templateText);
+      window.localStorage.setItem(TEMPLATE_NAME_KEY, templateName);
+    } else {
+      window.localStorage.removeItem(TEMPLATE_TEXT_KEY);
+      window.localStorage.removeItem(TEMPLATE_NAME_KEY);
+    }
+  } catch (e) {
+    // ignore storage failures
+  }
+  updateTemplateStatus();
+}
+
+function clearSqlPreview(message) {
+  lastRenderedSql = '';
+  let preview = getId('sql-preview');
+  if (!preview) return;
+  preview.textContent = message || SQL_PLACEHOLDER;
+}
+
+function downloadTextFile(filename, text, type) {
+  let blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' });
+  let url = URL.createObjectURL(blob);
+  let link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function extractLegacyLayout(workflow) {
+  let positions = {};
+  (workflow.TASKS || []).forEach((task, index) => {
+    let id = taskId(task, index);
+    if (task._x != null || task._y != null || task._fixed != null) {
+      positions[id] = {};
+      if (task._x != null) positions[id].x = task._x;
+      if (task._y != null) positions[id].y = task._y;
+      if (task._fixed != null) positions[id].fixed = !!task._fixed;
+    }
+    delete task._x;
+    delete task._y;
+    delete task._fixed;
+  });
+  return positions;
+}
+
+function loadLayoutState(name, legacyPositions) {
+  layoutState = { positions: {}, viewport: null };
+  try {
+    let raw = window.localStorage.getItem(layoutStorageKey(name));
+    if (raw) {
+      let parsed = JSON.parse(raw);
+      if (parsed && parsed.positions && typeof parsed.positions === 'object') {
+        layoutState.positions = parsed.positions;
+      }
+      if (parsed && parsed.viewport) {
+        layoutState.viewport = parsed.viewport;
+      }
+    }
+  } catch (e) {
+    layoutState = { positions: {}, viewport: null };
+  }
+  Object.keys(legacyPositions || {}).forEach((id) => {
+    if (!layoutState.positions[id]) layoutState.positions[id] = legacyPositions[id];
+  });
+}
+
+function persistLayoutState() {
+  if (!data) return;
+  let filteredPositions = {};
+  (data.TASKS || []).forEach((task, index) => {
+    let id = taskId(task, index);
+    if (layoutState.positions[id]) filteredPositions[id] = layoutState.positions[id];
+  });
+  layoutState.positions = filteredPositions;
+  try {
+    window.localStorage.setItem(layoutStorageKey(), JSON.stringify(layoutState));
+  } catch (e) {
+    // ignore storage failures
+  }
+}
+
+function clearLayoutState(name) {
+  try {
+    window.localStorage.removeItem(layoutStorageKey(name));
+  } catch (e) {
+    // ignore storage failures
+  }
+}
+
+function getLayoutPosition(id) {
+  return layoutState.positions[id] || null;
+}
+
+function serializeWorkflow() {
+  let clone = JSON.parse(JSON.stringify(data));
+  (clone.TASKS || []).forEach((task) => {
+    delete task._x;
+    delete task._y;
+    delete task._fixed;
+    if (Array.isArray(task.after) && task.after.length === 0) {
+      task.after = null;
+    }
+  });
+  return clone;
+}
+
+function setViewBox(x, y, width, height, persist) {
+  if (!svgEl) return;
+  svgEl.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+  if (persist !== false) {
+    layoutState.viewport = { x, y, width, height };
+    persistLayoutState();
+  }
+  drawMiniMap();
+}
+
+function currentViewBox() {
+  if (!svgEl) return { ...DEFAULT_VIEWBOX };
+  let vb = svgEl.viewBox.baseVal;
+  return {
+    x: vb.x,
+    y: vb.y,
+    width: vb.width || DEFAULT_VIEWBOX.width,
+    height: vb.height || DEFAULT_VIEWBOX.height,
+  };
+}
+
+function applyStoredViewport() {
+  let viewport = layoutState.viewport || DEFAULT_VIEWBOX;
+  setViewBox(viewport.x, viewport.y, viewport.width, viewport.height, false);
+}
+
+function wakeNodes() {
+  nodes.forEach((node) => {
+    if (node && typeof node.start === 'function') node.start();
+  });
+}
+
+function reseedLayoutPositions() {
+  let tasks = data.TASKS || [];
+  let viewBox = currentViewBox();
+  let centerX = viewBox.x + viewBox.width / 2;
+  let centerY = viewBox.y + viewBox.height / 2;
+  let radiusX = Math.max(120, viewBox.width * 0.28);
+  let radiusY = Math.max(90, viewBox.height * 0.24);
+  tasks.forEach((task, index) => {
+    let node = nodeMap[taskId(task, index)];
+    if (!node || node.fixed) return;
+    let angle = (index / Math.max(tasks.length, 1)) * 2 * Math.PI;
+    node.xPosition = centerX + Math.cos(angle) * radiusX;
+    node.yPosition = centerY + Math.sin(angle) * radiusY;
+    node.xVelocity = 0;
+    node.yVelocity = 0;
+  });
+}
+
+function updateGraphToolbar() {
+  let toggle = document.getElementById('btn-layout-toggle');
+  if (toggle) toggle.textContent = DrawingEngine.running ? 'Pause' : 'Play';
+  let release = document.getElementById('btn-release-fixed');
+  if (release) release.disabled = !Object.values(nodeMap).some((node) => node.fixed);
+}
+
+function getGraphBounds() {
+  let graphNodes = nodes.filter((node) => node && node.type !== NodeType.EDGE);
+  if (!graphNodes.length) {
+    let viewBox = currentViewBox();
+    return { x: viewBox.x, y: viewBox.y, width: viewBox.width, height: viewBox.height };
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  graphNodes.forEach((node) => {
+    minX = Math.min(minX, node.xPosition);
+    minY = Math.min(minY, node.yPosition);
+    maxX = Math.max(maxX, node.xPosition);
+    maxY = Math.max(maxY, node.yPosition);
+  });
+  let pad = 70;
+  let width = Math.max(1, maxX - minX);
+  let height = Math.max(1, maxY - minY);
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    width: width + pad * 2,
+    height: height + pad * 2,
+  };
+}
+
+function ensureMiniSvg() {
+  if (!miniSvgEl) {
+    miniSvgEl = document.getElementById('mini-svg');
+    if (miniSvgEl) {
+      miniSvgEl.addEventListener('mousedown', beginMiniNavigation);
+    }
+  }
+  return miniSvgEl;
+}
+
+function drawMiniMap() {
+  let miniatureSvg = ensureMiniSvg();
+  if (!miniatureSvg) return;
+  while (miniatureSvg.firstChild) miniatureSvg.removeChild(miniatureSvg.firstChild);
+
+  let bounds = getGraphBounds();
+  miniatureSvg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+
+  function mini(tag, attrs) {
+    let el = document.createElementNS(svgNS, tag);
+    for (let key in attrs) el.setAttribute(key, attrs[key]);
+    return el;
+  }
+
+  miniatureSvg.appendChild(mini('rect', {
+    class: 'mini-backdrop',
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    rx: 24,
+    ry: 24,
+  }));
+
+  edges.forEach((edge) => {
+    let src = edge.node;
+    let tgt = edge.otherNode;
+    miniatureSvg.appendChild(mini('path', {
+      class: 'mini-edge',
+      d: `M${src.xPosition},${src.yPosition} Q${edge.xPosition},${edge.yPosition} ${tgt.xPosition},${tgt.yPosition}`,
+    }));
+  });
+
+  let tasks = data.TASKS || [];
+  tasks.forEach((task, index) => {
+    let node = nodeMap[taskId(task, index)];
+    if (!node) return;
+    miniatureSvg.appendChild(mini('circle', {
+      class: 'mini-node' + (node.isRoot ? ' root' : ''),
+      cx: node.xPosition,
+      cy: node.yPosition,
+      r: node.isRoot ? 12 : 8,
+    }));
+  });
+
+  let viewBox = currentViewBox();
+  miniatureSvg.appendChild(mini('rect', {
+    class: 'mini-viewport',
+    x: viewBox.x,
+    y: viewBox.y,
+    width: viewBox.width,
+    height: viewBox.height,
+    rx: 10,
+    ry: 10,
+  }));
+}
+
+function screenToMiniature(x, y) {
+  let miniatureSvg = ensureMiniSvg();
+  if (!miniatureSvg) return { x, y };
+  let point = miniatureSvg.createSVGPoint();
+  point.x = x;
+  point.y = y;
+  let matrix = miniatureSvg.getScreenCTM();
+  return matrix ? point.matrixTransform(matrix.inverse()) : { x, y };
+}
+
+function centerViewAt(x, y) {
+  let viewBox = currentViewBox();
+  setViewBox(x - viewBox.width / 2, y - viewBox.height / 2, viewBox.width, viewBox.height);
+}
+
+function beginMiniNavigation(e) {
+  if (e.button !== 0) return;
+  let miniatureSvg = ensureMiniSvg();
+  if (!miniatureSvg) return;
+  let container = document.getElementById('miniature');
+  if (!container) return;
+  let rect = container.getBoundingClientRect();
+  let viewBox = miniatureSvg.viewBox.baseVal;
+  miniNavState.active = true;
+  miniNavState.scaleX = (viewBox.width || rect.width) / Math.max(rect.width, 1);
+  miniNavState.scaleY = (viewBox.height || rect.height) / Math.max(rect.height, 1);
+  miniNavState.lastX = e.clientX;
+  miniNavState.lastY = e.clientY;
+  let point = screenToMiniature(e.clientX, e.clientY);
+  centerViewAt(point.x, point.y);
+  container.classList.add('dragging');
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+const DrawingEngine = {
+  drawId: null,
+  running: false,
+  layout: false,
+  init() {
+    if (!window.requestAnimationFrame) {
+      window.requestAnimationFrame = function(callback) {
+        return setTimeout(callback, 16);
+      };
+    }
+    if (!window.cancelAnimationFrame) {
+      window.cancelAnimationFrame = function(id) {
+        clearTimeout(id);
+      };
+    }
+  },
+  start(layoutModel) {
+    this.layout = layoutModel;
+    updateGraphToolbar();
+    if (this.running) return;
+    this.running = true;
+    this.drawId = window.requestAnimationFrame(() => this.engine());
+  },
+  stop() {
+    if (!this.running) return;
+    window.cancelAnimationFrame(this.drawId);
+    this.drawId = null;
+    this.running = false;
+    this.layout = false;
+    updateGraphToolbar();
+  },
+  engine() {
+    if (this.layout || !LayoutEngine.equilibrium) {
+      LayoutEngine.layout(nodes);
+      updatePositions(false);
+    }
+    drawGraph();
+    drawMiniMap();
+    if (LayoutEngine.equilibrium) {
+      this.stop();
+      return;
+    }
+    if (this.running) {
+      this.drawId = window.requestAnimationFrame(() => this.engine());
+    }
+  }
+};
+
+// --- LayoutEngine init ---
+LayoutEngine.init();
+LayoutEngine.layout = LayoutEngine.simpleLayout;
+DrawingEngine.init();
+
+// --- Local storage + file helpers ---
+function readStoredWorkflow(name) {
+  let raw = window.localStorage.getItem(workflowStorageKey(name));
+  if (!raw) return null;
+  let workflow = JSON.parse(raw);
+  if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) {
+    throw new Error('Stored workflow "' + name + '" is invalid.');
+  }
+  return workflow;
+}
+
+async function loadWorkflows() {
+  workflows = loadStoredWorkflowNames().map((name) => ({ name: name, type: 'Local' }));
+  renderSidebar();
+  let hasCurrent = workflows.some((workflow) => workflow.name === current);
+  if (!hasCurrent) {
+    if (workflows.length > 0) {
+      await selectWorkflow(workflows[0].name);
+      return;
+    }
+    current = null;
+    currentCfId = null;
+    data = null;
+    hideEditor();
+  }
+  updateActionButtons();
+}
+
+async function loadWorkflow(name) {
+  let workflow = readStoredWorkflow(name);
+  if (!workflow) {
+    throw new Error('Workflow "' + name + '" was not found in this browser.');
+  }
+  current = name;
+  currentCfId = null;
+  data = workflow;
+  data.TASKS = Array.isArray(data.TASKS) ? data.TASKS : [];
+  loadLayoutState(current, extractLegacyLayout(data));
+  selectedTask = 0;
+  dirty = false;
+  clearSqlPreview();
+  needsInitialLayout = true;
+  renderEditor();
+}
+
+async function saveWorkflow() {
+  let nextName = normalizeWorkflowName(data && (data.WORKFLOW || current) || '');
+  if (!nextName) {
+    showStatus('Workflow name is required', 'error');
+    return;
+  }
+  let previousName = current && current !== '__new__' ? current : null;
+  data.WORKFLOW = nextName;
+  updatePositions(false);
+  try {
+    window.localStorage.setItem(workflowStorageKey(nextName), JSON.stringify(serializeWorkflow()));
+    let names = loadStoredWorkflowNames().filter((name) => name !== previousName);
+    if (!names.includes(nextName)) names.push(nextName);
+    saveStoredWorkflowNames(names);
+    if (previousName && previousName !== nextName) {
+      window.localStorage.removeItem(workflowStorageKey(previousName));
+      renameStoredLayout(previousName, nextName);
+    }
+    current = nextName;
+    dirty = false;
+    renderSidebar();
+    updateActionButtons();
+    showStatus('Saved locally', 'success');
+    await loadWorkflows();
+  } catch (e) {
+    showStatus(e.message || 'Saving failed', 'error');
+  }
+}
+
+async function deleteWorkflow() {
+  if (!data) return;
+  if (current === '__new__') {
+    if (!confirm('Discard the unsaved workflow?')) return;
+    current = null;
+    currentCfId = null;
+    data = null;
+    clearSqlPreview();
+    hideEditor();
+    renderSidebar();
+    updateActionButtons();
+    return;
+  }
+  if (!confirm('Delete "' + current + '" from this browser?')) return;
+  clearLayoutState(current);
+  try {
+    window.localStorage.removeItem(workflowStorageKey(current));
+    saveStoredWorkflowNames(loadStoredWorkflowNames().filter((name) => name !== current));
+  } catch (e) {
+    showStatus(e.message || 'Delete failed', 'error');
+    return;
+  }
+  current = null;
+  currentCfId = null;
+  data = null;
+  clearSqlPreview();
+  showStatus('Deleted local workflow', 'success');
+  await loadWorkflows();
+}
+
+function triggerWorkflowImport() {
+  let input = getId('workflow-import-input');
+  if (input) input.click();
+}
+
+async function importWorkflowFile(event) {
+  let file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    let parsed = JSON.parse(await file.text());
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Workflow file must contain a JSON object');
+    }
+    parsed.TASKS = Array.isArray(parsed.TASKS) ? parsed.TASKS : [];
+    current = '__new__';
+    currentCfId = null;
+    data = parsed;
+    loadLayoutState(parsed.WORKFLOW || file.name.replace(/\.[^.]+$/, ''), extractLegacyLayout(data));
+    selectedTask = 0;
+    dirty = true;
+    clearSqlPreview('Render SQL to preview the generated DDL.');
+    needsInitialLayout = true;
+    renderSidebar();
+    renderEditor();
+    showStatus('Workflow imported. Save locally to keep it.', 'success');
+  } catch (e) {
+    showStatus(e.message || 'Import failed', 'error');
+  } finally {
+    event.target.value = '';
+  }
+}
+
+function triggerTemplateLoad() {
+  let input = getId('template-file-input');
+  if (input) input.click();
+}
+
+async function importTemplateFile(event) {
+  let file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    cacheTemplate(await file.text(), file.name);
+    clearSqlPreview();
+    renderSqlTab();
+    updateActionButtons();
+    showStatus('Template loaded', 'success');
+  } catch (e) {
+    showStatus(e.message || 'Template load failed', 'error');
+  } finally {
+    event.target.value = '';
+  }
+}
+
+function renderSqlPreview() {
+  if (!data) return;
+  if (!templateText) {
+    switchTab('sql');
+    renderSqlTab();
+    showStatus('Load CreateTaskGraph.sisula first', 'error');
+    return;
+  }
+  updatePositions(false);
+  try {
+    let bindings = serializeWorkflow();
+    bindings.WORKFLOW = bindings.WORKFLOW || current || 'Workflow';
+    lastRenderedSql = sisulate(templateText, JSON.stringify(bindings));
+    switchTab('sql');
+    renderSqlTab();
+    showStatus('SQL rendered', 'success');
+  } catch (e) {
+    clearSqlPreview('Rendering failed. See the status message for details.');
+    switchTab('sql');
+    showStatus(e.message || 'SQL rendering failed', 'error');
+  }
+}
+
+function exportWorkflowJson() {
+  if (!data) return;
+  updatePositions(false);
+  downloadTextFile(workflowDownloadName('.json'), JSON.stringify(serializeWorkflow(), null, 2) + '\n', 'application/json');
+  showStatus('Workflow JSON exported', 'success');
+}
+
+function exportSqlFile() {
+  if (!data) return;
+  if (!templateText) {
+    switchTab('sql');
+    renderSqlTab();
+    showStatus('Load CreateTaskGraph.sisula first', 'error');
+    return;
+  }
+  if (!lastRenderedSql || dirty) {
+    renderSqlPreview();
+    if (!lastRenderedSql) return;
+  }
+  downloadTextFile(workflowDownloadName('.sql'), lastRenderedSql, 'text/plain;charset=utf-8');
+  showStatus('SQL exported', 'success');
+}
+
+// --- UI render ---
+function renderSidebar() {
+  let list = document.getElementById('workflow-list');
+  if (!list) return;
+  if (!workflows.length) {
+    list.innerHTML = '<div class="sidebar-note">No saved workflows yet.</div>';
+    return;
+  }
+  list.innerHTML = workflows.map((workflow) => {
+    let encodedName = encodeURIComponent(workflow.name);
+    return `<div class="workflow-item${workflow.name===current?' active':''}" onclick="selectWorkflow(decodeURIComponent('${encodedName}'))">${esc(workflow.name)}</div>`;
+  }).join('');
+}
+
+function showEditor() {
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('editor').style.display = '';
+  document.getElementById('actions').style.display = '';
+  updateActionButtons();
+}
+
+function hideEditor() {
+  document.getElementById('empty-state').style.display = '';
+  document.getElementById('editor').style.display = 'none';
+  document.getElementById('actions').style.display = 'none';
+}
+
+async function selectWorkflow(name) {
+  await loadWorkflow(name);
+  renderSidebar();
+}
+
+function newWorkflow() {
+  current = '__new__';
+  currentCfId = null;
+  data = { WORKFLOW: 'NewWorkflow', WAREHOUSE: 'COMPUTE_WH', TASK_TIMEOUT: 3600000, MAX_FAILURES: 3, TASKS: [] };
+  layoutState = { positions: {}, viewport: { ...DEFAULT_VIEWBOX } };
+  selectedTask = 0;
+  clearSqlPreview('Render SQL to preview the generated DDL.');
+  setDirty(true);
+  needsInitialLayout = true;
+  showEditor();
+  renderSidebar();
+  renderEditor();
+}
+
+function showStatus(msg, type) {
+  let s = document.getElementById('status');
+  s.textContent = msg;
+  s.className = 'show ' + (type || 'success');
+  setTimeout(() => s.className = '', 2000);
+}
+
+function openInstallModal(title) {
+  let modal = getId('install-modal');
+  let titleEl = getId('install-modal-title');
+  let logEl = getId('install-log');
+  let closeButton = getId('install-modal-close');
+  if (titleEl) titleEl.textContent = title || 'Install workflow';
+  if (logEl) logEl.textContent = '';
+  if (closeButton) closeButton.disabled = true;
+  setInstallModalState('running');
+  if (modal) {
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closeInstallModal(force) {
+  if (installing && !force) return;
+  let modal = getId('install-modal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function setInstallModalState(state) {
+  let stateEl = getId('install-modal-state');
+  if (!stateEl) return;
+  stateEl.className = state ? state.toLowerCase() : '';
+  stateEl.id = 'install-modal-state';
+  stateEl.textContent = state || 'Idle';
+  stateEl.classList.add((state || 'idle').toLowerCase());
+}
+
+function appendInstallLog(line) {
+  let logEl = getId('install-log');
+  if (!logEl) return;
+  logEl.textContent += line + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setDirty(value) {
+  dirty = !!value;
+  if (dirty) renderSqlTab();
+  updateActionButtons();
+}
+
+function updateActionButtons() {
+  let hasData = !!data;
+  let hasTemplate = !!templateText;
+  let saveButton = getId('btn-save-local');
+  let exportJsonButton = getId('btn-export-json');
+  let renderButton = getId('btn-render-sql');
+  let exportSqlButton = getId('btn-export-sql');
+  let deleteButton = getId('btn-delete-workflow');
+
+  if (saveButton) {
+    saveButton.disabled = !hasData;
+    saveButton.title = hasData ? 'Save this workflow in browser local storage' : 'Create or load a workflow first';
+  }
+  if (exportJsonButton) {
+    exportJsonButton.disabled = !hasData;
+    exportJsonButton.title = hasData ? 'Download the current workflow JSON' : 'Create or load a workflow first';
+  }
+  if (renderButton) {
+    renderButton.disabled = !hasData || !hasTemplate;
+    renderButton.title = !hasData ? 'Create or load a workflow first' : (hasTemplate ? 'Render DDL from the loaded Sisula template' : 'Load CreateTaskGraph.sisula first');
+  }
+  if (exportSqlButton) {
+    exportSqlButton.disabled = !hasData || !hasTemplate;
+    exportSqlButton.title = !hasData ? 'Create or load a workflow first' : (hasTemplate ? 'Download the generated SQL' : 'Load CreateTaskGraph.sisula first');
+  }
+  if (deleteButton) {
+    deleteButton.disabled = !hasData;
+    deleteButton.title = current === '__new__' ? 'Discard the unsaved workflow' : 'Delete this workflow from browser local storage';
+  }
+}
+
+// --- Editor ---
+function renderEditor() {
+  if (!data) return;
+  showEditor();
+  document.getElementById('wf-name').value = data.WORKFLOW || '';
+  document.getElementById('wf-wh').value = data.WAREHOUSE || '';
+  document.getElementById('wf-timeout').value = data.TASK_TIMEOUT || 3600000;
+  document.getElementById('wf-max-fail').value = data.MAX_FAILURES || 3;
+  document.getElementById('wf-config').value = data.CONFIG || '';
+
+  renderMetrics();
+  renderTaskButtons();
+  renderGraph();
+  switchTab('task');
+  updateActionButtons();
+}
+
+function renderMetrics() {
+  let tasks = data.TASKS || [];
+  let root = tasks.find(t => t.is_root || t.schedule) || {};
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric"><div class="value">${tasks.length}</div><div class="label">Tasks</div></div>
+    <div class="metric"><div class="value">${root.name || '-'}</div><div class="label">Root</div></div>
+    <div class="metric"><div class="value">${root.schedule || '-'}</div><div class="label">Schedule</div></div>
+  `;
+}
+
+function renderTaskButtons() {
+  let tasks = data.TASKS || [];
+  document.getElementById('task-buttons').innerHTML = tasks.map((t, i) =>
+    `<button class="task-btn${i===selectedTask?' active':''}" onclick="selectTask(${i})">${t.name || 'task_'+i}</button>`
+  ).join('');
+}
+
+function selectTask(idx) {
+  selectedTask = idx;
+  renderTaskButtons();
+  renderGraph();
+  switchTab('task');
+}
+
+// --- Graph ---
+function renderGraph() {
+  let tasks = data.TASKS || [];
+  let container = document.getElementById('graph-container');
+  DrawingEngine.stop();
+  svgEl = document.getElementById('graph-svg');
+  if (!svgEl) {
+    svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgEl.id = 'graph-svg';
+    svgEl.setAttribute('viewBox', '0 0 800 450');
+    svgEl.setAttribute('width', '100%');
+    svgEl.setAttribute('height', '100%');
+    svgEl.style.display = 'block';
+    container.appendChild(svgEl);
+    svgEl.addEventListener('mousedown', beginPanning);
+    svgEl.addEventListener('wheel', zoomGraph, { passive: false });
+  }
+  ensureMiniSvg();
+  applyStoredViewport();
+
+  LayoutEngine.init();
+  LayoutEngine.layout = LayoutEngine.simpleLayout;
+  nodes = [];
+  nodeMap = {};
+  edges = [];
+  svgNS = 'http://www.w3.org/2000/svg';
+  let useSavedPositions = !needsInitialLayout;
+
+  tasks.forEach((t, i) => {
+    let angle = (i / Math.max(tasks.length, 1)) * 2 * Math.PI;
+    let id = taskId(t, i);
+    let saved = getLayoutPosition(id);
+    let px = useSavedPositions && saved && saved.x != null ? saved.x : (400 + Math.cos(angle) * 150);
+    let py = useSavedPositions && saved && saved.y != null ? saved.y : (225 + Math.sin(angle) * 100);
+    let node = new Node(id, px, py, t.is_root ? NodeType.ROOT_TASK : NodeType.TASK);
+    node.fixed = !!(saved && saved.fixed);
+    node.label = t.name; node.isRoot = t.is_root; node.description = t.description;
+    nodes.push(node);
+    nodeMap[id] = node;
+  });
+
+  let eid = 1000;
+  tasks.forEach((t, i) => {
+    (t.after || []).forEach(a => {
+      let src = nodeMap[a.name], tgt = nodeMap[taskId(t, i)];
+      if (src && tgt) {
+        let edge = new Edge(eid++, src, tgt);
+        edges.push(edge);
+        nodes.push(edge);
+      }
+    });
+  });
+
+  // Re-layout once when a workflow is loaded, otherwise only when positions are missing.
+  let allSaved = tasks.every((t, i) => {
+    let saved = getLayoutPosition(taskId(t, i));
+    return saved && saved.x != null && saved.y != null;
+  });
+  let shouldLayout = needsInitialLayout || !allSaved;
+  drawGraph();
+  drawMiniMap();
+  needsInitialLayout = false;
+  updateGraphToolbar();
+  if (shouldLayout) {
+    LayoutEngine.equilibrium = false;
+    wakeNodes();
+    DrawingEngine.start(true);
+  }
+}
+
+function drawGraph() {
+  let tasks = data.TASKS || [];
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+
+  function ce(tag, attrs) {
+    let el = document.createElementNS(svgNS, tag);
+    for (let k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  edges.forEach(edge => {
+    let src = edge.node, tgt = edge.otherNode;
+    svgEl.appendChild(ce('path', { class: 'edge-line',
+      d: `M${src.xPosition},${src.yPosition} Q${edge.xPosition},${edge.yPosition} ${tgt.xPosition},${tgt.yPosition}`
+    }));
+    let dx = tgt.xPosition - edge.xPosition, dy = tgt.yPosition - edge.yPosition, len = Math.sqrt(dx*dx+dy*dy)||1;
+    let ux = dx/len, uy = dy/len, nr = tgt.isRoot?22:18;
+    let tipX = tgt.xPosition - ux*(nr+2), tipY = tgt.yPosition - uy*(nr+2), aSize = 8;
+    let bX = tipX - ux*aSize, bY = tipY - uy*aSize, pX = -uy*aSize*0.5, pY = ux*aSize*0.5;
+    svgEl.appendChild(ce('polygon', { points: `${tipX},${tipY} ${bX+pX},${bY+pY} ${bX-pX},${bY-pY}`, fill: '#4a9eff' }));
+  });
+
+  tasks.forEach((t, i) => {
+    let node = nodeMap[taskId(t, i)];
+    if (!node) return;
+    let r = node.isRoot ? 22 : 18;
+    let isSel = (i === selectedTask);
+    let circle = ce('circle', {
+      class: 'node-circle' + (node.isRoot?' root-node':'') + (isSel?' node-selected':''),
+      cx: node.xPosition, cy: node.yPosition, r: r,
+      fill: node.isRoot ? '#1a5c1a' : '#1a3a5c',
+      stroke: isSel ? '#ff6b6b' : (node.isRoot ? '#ffd700' : '#4a9eff'),
+      'stroke-width': isSel ? 4 : (node.isRoot ? 2.5 : 1.5)
+    });
+    circle.addEventListener('click', function() {
+      if (Date.now() < suppressClickUntil) return;
+      clearTimeout(pendingClickTimer);
+      pendingClickTimer = setTimeout(function() {
+        pendingClickTimer = null;
+        if (!node.fixed) return;
+        node.fixed = false;
+        node.setUnstoppable(false);
+        node.start();
+        updatePositions();
+        LayoutEngine.equilibrium = false;
+        DrawingEngine.start(true);
+      }, 220);
+    });
+    circle.addEventListener('dblclick', function() {
+      clearTimeout(pendingClickTimer);
+      pendingClickTimer = null;
+      let idx = tasks.findIndex((tk, taskIndex) => taskId(tk, taskIndex) === taskId(t, i));
+      if (idx >= 0) selectTask(idx);
+    });
+    svgEl.appendChild(circle);
+    if (node.fixed) {
+      svgEl.appendChild(ce('circle', {
+        class: 'node-fixation',
+        cx: node.xPosition,
+        cy: node.yPosition,
+        r: Math.max(3, Math.round(r * 0.2))
+      }));
+    }
+    let label = ce('text', { class: 'node-label', x: node.xPosition, y: node.yPosition + r + 14 });
+    label.textContent = t.name || ('task_'+i);
+    svgEl.appendChild(label);
+  });
+}
+
+// --- Drag ---
+let dragNode = null, dragStart = null, isDragging = false;
+let DRAG_THRESHOLD = 5;
+let suppressClickUntil = 0;
+let pendingClickTimer = null;
+
+function screenToSVG(x, y) {
+  if (!svgEl) return { x: x, y: y };
+  let point = svgEl.createSVGPoint();
+  point.x = x;
+  point.y = y;
+  let matrix = svgEl.getScreenCTM();
+  return matrix ? point.matrixTransform(matrix.inverse()) : { x: x, y: y };
+}
+
+function findNodeByXY(x, y) {
+  for (let id in nodeMap) {
+    let n = nodeMap[id];
+    if (Math.abs(n.xPosition - x) < 20 && Math.abs(n.yPosition - y) < 20) return n;
+  }
+  return null;
+}
+
+function updatePositions(markDirty) {
+  let tasks = data.TASKS || [];
+  for (let i = 0; i < tasks.length; i++) {
+    let id = taskId(tasks[i], i);
+    let n = nodeMap[id];
+    if (n) {
+      layoutState.positions[id] = { x: n.xPosition, y: n.yPosition, fixed: !!n.fixed };
+    }
+  }
+  persistLayoutState();
+  if (markDirty) {
+    setDirty(true);
+  }
+}
+
+function beginPanning(e) {
+  if (e.button !== 0 || e.target.classList.contains('node-circle')) return;
+  panState.active = true;
+  let viewBox = currentViewBox();
+  panState.scaleX = viewBox.width / Math.max(svgEl.clientWidth, 1);
+  panState.scaleY = viewBox.height / Math.max(svgEl.clientHeight, 1);
+  panState.lastX = e.clientX;
+  panState.lastY = e.clientY;
+  svgEl.style.cursor = 'move';
+  e.preventDefault();
+}
+
+function zoomGraph(e) {
+  if (!svgEl) return;
+  e.preventDefault();
+  let factor = 1 + (e.deltaY > 0 ? 1 : -1) * 0.03;
+  let viewBox = currentViewBox();
+  let svgPoint = screenToSVG(e.clientX, e.clientY);
+  setViewBox(
+    viewBox.x + (1 - factor) * (svgPoint.x - viewBox.x),
+    viewBox.y + (1 - factor) * (svgPoint.y - viewBox.y),
+    viewBox.width * factor,
+    viewBox.height * factor
+  );
+}
+
+function relayoutGraph() {
+  if (!nodes.length) return;
+  reseedLayoutPositions();
+  wakeNodes();
+  updatePositions(false);
+  LayoutEngine.equilibrium = false;
+  DrawingEngine.start(true);
+}
+
+function toggleLayoutEngine() {
+  if (DrawingEngine.running) {
+    DrawingEngine.stop();
+    return;
+  }
+  wakeNodes();
+  LayoutEngine.equilibrium = false;
+  DrawingEngine.start(true);
+}
+
+function releaseFixedNodes() {
+  Object.values(nodeMap).forEach((node) => {
+    node.fixed = false;
+    node.setUnstoppable(false);
+    node.start();
+  });
+  updatePositions(false);
+  updateGraphToolbar();
+  LayoutEngine.equilibrium = false;
+  DrawingEngine.start(true);
+}
+
+function resetViewport() {
+  setViewBox(DEFAULT_VIEWBOX.x, DEFAULT_VIEWBOX.y, DEFAULT_VIEWBOX.width, DEFAULT_VIEWBOX.height);
+}
+
+document.addEventListener('mousedown', function(e) {
+  if (e.target.classList.contains('node-circle')) {
+    panState.active = false;
+    let cx = parseFloat(e.target.getAttribute('cx'));
+    let cy = parseFloat(e.target.getAttribute('cy'));
+    dragNode = findNodeByXY(cx, cy);
+    if (dragNode) {
+      dragStart = { x: e.clientX, y: e.clientY };
+      isDragging = false;
+      e.preventDefault();
+    }
+  }
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (miniNavState.active) {
+    let miniatureSvg = ensureMiniSvg();
+    if (!miniatureSvg) return;
+    let viewBox = currentViewBox();
+    setViewBox(
+      viewBox.x + (e.clientX - miniNavState.lastX) * miniNavState.scaleX,
+      viewBox.y + (e.clientY - miniNavState.lastY) * miniNavState.scaleY,
+      viewBox.width,
+      viewBox.height
+    );
+    miniNavState.lastX = e.clientX;
+    miniNavState.lastY = e.clientY;
+    e.preventDefault();
+    return;
+  }
+  if (panState.active && svgEl) {
+    let viewBox = currentViewBox();
+    setViewBox(
+      viewBox.x - (e.clientX - panState.lastX) * panState.scaleX,
+      viewBox.y - (e.clientY - panState.lastY) * panState.scaleY,
+      viewBox.width,
+      viewBox.height
+    );
+    panState.lastX = e.clientX;
+    panState.lastY = e.clientY;
+    e.preventDefault();
+    return;
+  }
+  if (!dragNode) return;
+  if (!isDragging) {
+    if (Math.max(Math.abs(e.clientX - dragStart.x), Math.abs(e.clientY - dragStart.y)) < DRAG_THRESHOLD) return;
+    isDragging = true;
+  }
+  let pt = screenToSVG(e.clientX, e.clientY);
+  dragNode.xPosition = pt.x;
+  dragNode.yPosition = pt.y;
+  dragNode.xVelocity = 0;
+  dragNode.yVelocity = 0;
+  dragNode.start();
+  dragNode.fixed = true;
+  dragNode.setUnstoppable(true);
+  LayoutEngine.equilibrium = false;
+  updatePositions();
+  DrawingEngine.start(true);
+});
+
+document.addEventListener('mouseup', function() {
+  if (miniNavState.active) {
+    miniNavState.active = false;
+    document.getElementById('miniature')?.classList.remove('dragging');
+  }
+  if (panState.active && svgEl) {
+    panState.active = false;
+    svgEl.style.cursor = 'default';
+  }
+  if (dragNode && isDragging) {
+    dragNode.setUnstoppable(false);
+    suppressClickUntil = Date.now() + 250;
+  }
+  dragNode = null;
+  isDragging = false;
+});
+
+// --- Forms ---
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.textContent.toLowerCase().includes(name)));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id.includes(name)));
+  if (name === 'task') renderTaskForm();
+  if (name === 'steps') renderStepsForm();
+  if (name === 'json') renderJsonPreview();
+  if (name === 'sql') renderSqlTab();
+}
+
+function renderTaskForm() {
+  let tasks = data.TASKS || [];
+  if (!tasks.length) {
+    document.getElementById('tab-task').innerHTML = '<p style="color:#888;padding:1rem;">No tasks. Click "+ Add task".</p>';
+    return;
+  }
+  let t = tasks[selectedTask] || tasks[0];
+  document.getElementById('tab-task').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group"><label>Task name</label><input id="f-name" value="${esc(t.name||'')}" oninput="syncTask()"/></div>
+      <div class="form-group"><label>Schedule (cron)</label><input id="f-sched" value="${esc(t.schedule||'')}" placeholder="USING CRON 0 2 * * * UTC" oninput="syncTask()"/></div>
+      <div class="form-group"><label>Description</label><textarea id="f-desc" oninput="syncTask()">${esc(t.description||'')}</textarea></div>
+      <div class="form-group">
+        <label>State</label><select id="f-state" onchange="syncTask()">
+          <option ${t.state==='suspended'?'selected':''}>suspended</option>
+          <option ${t.state==='running'?'selected':''}>running</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="check-option"><input type="checkbox" id="f-root" ${t.is_root?'checked':''} onchange="syncTask()"><span>Is root task</span></label></div>
+      <div class="form-group">
+        <label>Run after (predecessors)</label>
+        <div id="f-after"></div>
+      </div>
+    </div>
+    <button onclick="removeTask()" style="margin-top:0.5rem;color:#cf222e;border:1px solid #cf222e;background:none;padding:0.3rem 0.8rem;border-radius:6px;cursor:pointer;">Remove this task</button>
+  `;
+  // Render multi-select for after
+  let allNames = tasks.map((tk, i) => i !== selectedTask ? tk.name : null).filter(Boolean);
+  let after = (t.after || []).map(a => a.name);
+  document.getElementById('f-after').innerHTML = allNames.map(n =>
+    `<label class="check-option"><input type="checkbox" value="${n}" ${after.includes(n)?'checked':''} onchange="syncTask()"><span>${n}</span></label>`
+  ).join('');
+}
+
+function syncTask() {
+  let tasks = data.TASKS || [];
+  let t = tasks[selectedTask] || tasks[0];
+  let oldId = taskId(t, selectedTask);
+  let fName = document.getElementById('f-name');
+  if (fName) t.name = fName.value;
+  let newId = taskId(t, selectedTask);
+  if (oldId !== newId && layoutState.positions[oldId] && !layoutState.positions[newId]) {
+    layoutState.positions[newId] = layoutState.positions[oldId];
+    delete layoutState.positions[oldId];
+    persistLayoutState();
+  }
+  let fSched = document.getElementById('f-sched');
+  if (fSched) t.schedule = fSched.value || null;
+  let fDesc = document.getElementById('f-desc');
+  if (fDesc) t.description = fDesc.value;
+  let fState = document.getElementById('f-state');
+  if (fState) t.state = fState.value;
+  let fRoot = document.getElementById('f-root');
+  if (fRoot) t.is_root = fRoot.checked;
+  let checks = document.querySelectorAll('#f-after input[type=checkbox]');
+  if (checks.length) {
+    t.after = Array.from(checks).filter(c => c.checked).map(c => ({name: c.value}));
+    if (!t.after.length) t.after = null;
+  }
+  setDirty(true);
+  renderTaskButtons();
+  renderGraph();
+}
+
+function syncForm() {
+  data.WORKFLOW = document.getElementById('wf-name').value;
+  data.WAREHOUSE = document.getElementById('wf-wh').value;
+  data.TASK_TIMEOUT = parseInt(document.getElementById('wf-timeout').value) || 3600000;
+  data.MAX_FAILURES = parseInt(document.getElementById('wf-max-fail').value) || 3;
+  data.CONFIG = document.getElementById('wf-config').value || null;
+  setDirty(true);
+}
+
+// --- Steps ---
+const STEP_TYPES = ['proc', 'sql', 'lineage', 'rows', 'return_value'];
+const STEP_BADGES = { proc: 'badge-proc', sql: 'badge-sql', lineage: 'badge-lineage', rows: 'badge-rows', return_value: 'badge-return_value' };
+
+function renderStepsForm() {
+  let tasks = data.TASKS || [];
+  if (!tasks.length) { document.getElementById('tab-steps').innerHTML = '<p style="color:#888;padding:1rem;">No tasks to show steps for.</p>'; return; }
+  let t = tasks[selectedTask] || tasks[0];
+  let steps = t.steps || [];
+  document.getElementById('tab-steps').innerHTML = `
+    <div id="steps-container">${steps.map((s, i) => stepHTML(s, i)).join('')}</div>
+    <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
+      <button onclick="addStep()">+ Add step</button>
+      ${steps.length ? '<button onclick="removeLastStep()">Remove last</button>' : ''}
+    </div>
+  `;
+}
+
+function stepHTML(step, i) {
+  let type = step.type || 'proc';
+  return `
+    <div class="step ${step._open?'open':''}" id="step-${i}">
+      <div class="step-header" onclick="toggleStep(${i})">
+        <span class="badge ${STEP_BADGES[type]||''}">${type}</span>
+        <span style="flex:1">Step ${i+1}: ${esc(step.description || 'Untitled')}</span>
+      </div>
+      <div class="step-body">
+        <div class="form-grid">
+          <div class="form-group"><label>Type</label><select onchange="syncStep(${i})" id="s${i}-type">
+            ${STEP_TYPES.map(st => `<option ${st===type?'selected':''}>${st}</option>`).join('')}
+          </select></div>
+          <div class="form-group"><label>Description</label><input id="s${i}-desc" value="${esc(step.description||'')}" oninput="syncStep(${i})"/></div>
+        </div>
+        ${stepSpecificFields(step, i)}
+      </div>
+    </div>
+  `;
+}
+
+function stepSpecificFields(step, i) {
+  let t = step.type || 'proc';
+  if (t === 'proc') return `<div class="form-group full"><label>Procedure call</label><input id="s${i}-call" value="${esc(step.call||'')}" oninput="syncStep(${i})" placeholder="schema.sp_name()"/></div>`;
+  if (t === 'sql') return `
+    <div class="form-grid">
+      <div class="form-group"><label>Source</label><input id="s${i}-src" value="${esc((step.lineage||{}).source||'')}" oninput="syncStep(${i})"/></div>
+      <div class="form-group"><label>Target</label><input id="s${i}-tgt" value="${esc((step.lineage||{}).target||'')}" oninput="syncStep(${i})"/></div>
+    </div>
+    <div class="form-group full"><label>SQL</label><textarea id="s${i}-sql" oninput="syncStep(${i})" style="min-height:80px;">${esc(step.sql||'')}</textarea></div>
+  `;
+  if (t === 'lineage') return `
+    <div class="form-grid">
+      <div class="form-group"><label>Source</label><input id="s${i}-src" value="${esc(step.source||'')}" oninput="syncStep(${i})"/></div>
+      <div class="form-group"><label>Target</label><input id="s${i}-tgt" value="${esc(step.target||'')}" oninput="syncStep(${i})"/></div>
+    </div>
+  `;
+  if (t === 'rows') {
+    let fields = ['inserted','updated','deleted','merged'];
+    return '<div class="form-grid">' + fields.map(f => '<div class="form-group"><label>' + f + '</label><input type="number" id="s' + i + '-' + f + '" value="' + (step[f]||0) + '" oninput="syncStep(' + i + ')"/></div>').join('') + '</div>';
+  }
+  if (t === 'return_value') return `<div class="form-group full"><label>Message</label><input id="s${i}-msg" value="${esc(step.message||'')}" oninput="syncStep(${i})"/></div>`;
+  return '';
+}
+
+function toggleStep(i) {
+  let t = data.TASKS[selectedTask];
+  let steps = t.steps || [];
+  steps[i]._open = !steps[i]._open;
+  renderStepsForm();
+}
+
+function syncStep(i) {
+  let t = data.TASKS[selectedTask];
+  let s = t.steps[i];
+  s.type = getId(`s${i}-type`).value;
+  s.description = getId(`s${i}-desc`).value;
+  if (s.type === 'proc') s.call = getId(`s${i}-call`).value;
+  if (s.type === 'sql') {
+    s.sql = getId(`s${i}-sql`).value;
+    s.lineage = { source: getId(`s${i}-src`).value, target: getId(`s${i}-tgt`).value };
+  }
+  if (s.type === 'lineage') { s.source = getId(`s${i}-src`).value; s.target = getId(`s${i}-tgt`).value; }
+  if (s.type === 'rows') ['inserted','updated','deleted','merged'].forEach(f => s[f] = parseInt(getId(`s${i}-${f}`).value)||0);
+  if (s.type === 'return_value') s.message = getId(`s${i}-msg`).value;
+  setDirty(true);
+  renderStepsForm();
+}
+
+function addStep() {
+  let t = data.TASKS[selectedTask];
+  t.steps = t.steps || [];
+  t.steps.push({ type: 'proc', description: '' });
+  setDirty(true);
+  renderStepsForm();
+}
+
+function removeLastStep() {
+  let t = data.TASKS[selectedTask];
+  if (t.steps && t.steps.length) { t.steps.pop(); setDirty(true); renderStepsForm(); }
+}
+
+function addTask() {
+  data.TASKS.push({ name: 'new_task', description: '', steps: [], after: null });
+  selectedTask = data.TASKS.length - 1;
+  setDirty(true);
+  LayoutEngine.equilibrium = false;
+  renderEditor();
+}
+
+function removeTask() {
+  let removed = data.TASKS[selectedTask];
+  data.TASKS.splice(selectedTask, 1);
+  if (removed) delete layoutState.positions[taskId(removed, selectedTask)];
+  persistLayoutState();
+  selectedTask = Math.max(0, Math.min(selectedTask, data.TASKS.length - 1));
+  setDirty(true);
+  renderEditor();
+}
+
+function renderJsonPreview() {
+  document.getElementById('json-preview').textContent = JSON.stringify(data, null, 2);
+}
+
+function renderSqlTab() {
+  let preview = getId('sql-preview');
+  if (!preview) return;
+  if (!data) {
+    preview.textContent = 'Open or create a workflow to preview generated SQL.';
+    return;
+  }
+  if (!templateText) {
+    preview.textContent = SQL_PLACEHOLDER;
+    return;
+  }
+  if (!lastRenderedSql) {
+    preview.textContent = dirty ? 'Workflow changed. Click Render SQL to update the preview.' : 'Click Render SQL to preview the generated DDL.';
+    return;
+  }
+  preview.textContent = lastRenderedSql;
+}
+
+function saveLocal() {
+  if (!data) return;
+  if (current === '__new__' || !current) {
+    current = data.WORKFLOW || 'Untitled';
+  }
+  data.WORKFLOW = data.WORKFLOW || current;
+  saveWorkflow();
+}
+
+function exportJson() { exportWorkflowJson(); }
+
+function renderSql() { renderSqlPreview(); }
+
+function exportSql() { exportSqlFile(); }
+
+function deleteLocal() { deleteWorkflow(); }
+
+// --- Helpers ---
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(new RegExp('\"','g'),'&quot;'); }
+function getId(id) { return document.getElementById(id); }
+
+// Start app
+console.log('Calling loadWorkflows...');
+loadCachedTemplate();
+renderSqlTab();
+loadWorkflows().catch(e => console.error('loadWorkflows failed:', e));
+</script>
+</body>
+</html>
