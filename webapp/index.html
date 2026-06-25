@@ -796,6 +796,7 @@ const DEFAULT_VIEWBOX = { x: 0, y: 0, width: 800, height: 450 };
 const WORKFLOW_INDEX_KEY = 'sisula-webapp:workflow-index';
 const TEMPLATE_TEXT_KEY = 'sisula-webapp:template-text';
 const TEMPLATE_NAME_KEY = 'sisula-webapp:template-name';
+const CURRENT_DRAFT_KEY = 'sisula-webapp:current-draft';
 const SQL_PLACEHOLDER = 'Load CreateTaskGraph.sisula from this folder, then click Render SQL.';
 
 function taskId(task, index) {
@@ -890,6 +891,58 @@ function clearSqlPreview(message) {
   let preview = getId('sql-preview');
   if (!preview) return;
   preview.textContent = message || SQL_PLACEHOLDER;
+}
+
+function clearCurrentDraft() {
+  try {
+    window.localStorage.removeItem(CURRENT_DRAFT_KEY);
+  } catch (e) {
+    // ignore storage failures
+  }
+}
+
+function persistCurrentDraft() {
+  try {
+    if (!data) {
+      clearCurrentDraft();
+      return;
+    }
+    window.localStorage.setItem(CURRENT_DRAFT_KEY, JSON.stringify({
+      current: current,
+      data: serializeWorkflow(),
+      selectedTask: selectedTask,
+      dirty: dirty,
+    }));
+  } catch (e) {
+    // ignore storage failures
+  }
+}
+
+function restoreCurrentDraft() {
+  try {
+    let raw = window.localStorage.getItem(CURRENT_DRAFT_KEY);
+    if (!raw) return false;
+    let draft = JSON.parse(raw);
+    if (!draft || !draft.data || typeof draft.data !== 'object' || Array.isArray(draft.data)) {
+      clearCurrentDraft();
+      return false;
+    }
+    current = typeof draft.current === 'string' && draft.current.length ? draft.current : (draft.data.WORKFLOW || '__new__');
+    currentCfId = null;
+    data = draft.data;
+    data.TASKS = Array.isArray(data.TASKS) ? data.TASKS : [];
+    loadLayoutState(current, extractLegacyLayout(data));
+    selectedTask = Math.max(0, Math.min(parseInt(draft.selectedTask, 10) || 0, Math.max(data.TASKS.length - 1, 0)));
+    dirty = !!draft.dirty;
+    clearSqlPreview(dirty ? 'Render SQL to preview the generated DDL.' : undefined);
+    needsInitialLayout = true;
+    renderSidebar();
+    renderEditor();
+    return true;
+  } catch (e) {
+    clearCurrentDraft();
+    return false;
+  }
 }
 
 function downloadTextFile(filename, text, type) {
@@ -1232,9 +1285,12 @@ function readStoredWorkflow(name) {
   return workflow;
 }
 
-async function loadWorkflows() {
+async function loadWorkflows(restoreDraft) {
   workflows = loadStoredWorkflowNames().map((name) => ({ name: name, type: 'Local' }));
   renderSidebar();
+  if (restoreDraft && restoreCurrentDraft()) {
+    return;
+  }
   let hasCurrent = workflows.some((workflow) => workflow.name === current);
   if (!hasCurrent) {
     if (workflows.length > 0) {
@@ -1264,6 +1320,7 @@ async function loadWorkflow(name) {
   clearSqlPreview();
   needsInitialLayout = true;
   renderEditor();
+  persistCurrentDraft();
 }
 
 async function saveWorkflow() {
@@ -1286,6 +1343,7 @@ async function saveWorkflow() {
     }
     current = nextName;
     dirty = false;
+    persistCurrentDraft();
     renderSidebar();
     updateActionButtons();
     showStatus('Saved locally', 'success');
@@ -1302,6 +1360,7 @@ async function deleteWorkflow() {
     current = null;
     currentCfId = null;
     data = null;
+    clearCurrentDraft();
     clearSqlPreview();
     hideEditor();
     renderSidebar();
@@ -1320,6 +1379,7 @@ async function deleteWorkflow() {
   current = null;
   currentCfId = null;
   data = null;
+  clearCurrentDraft();
   clearSqlPreview();
   showStatus('Deleted local workflow', 'success');
   await loadWorkflows();
@@ -1344,11 +1404,11 @@ async function importWorkflowFile(event) {
     data = parsed;
     loadLayoutState(parsed.WORKFLOW || file.name.replace(/\.[^.]+$/, ''), extractLegacyLayout(data));
     selectedTask = 0;
-    dirty = true;
     clearSqlPreview('Render SQL to preview the generated DDL.');
     needsInitialLayout = true;
     renderSidebar();
     renderEditor();
+    setDirty(true);
     showStatus('Workflow imported. Save locally to keep it.', 'success');
   } catch (e) {
     showStatus(e.message || 'Import failed', 'error');
@@ -1519,6 +1579,7 @@ function appendInstallLog(line) {
 function setDirty(value) {
   dirty = !!value;
   if (dirty) renderSqlTab();
+  persistCurrentDraft();
   updateActionButtons();
 }
 
@@ -1592,6 +1653,7 @@ function selectTask(idx) {
   renderTaskButtons();
   renderGraph();
   switchTab('task');
+  persistCurrentDraft();
 }
 
 // --- Graph ---
@@ -2306,7 +2368,7 @@ function getId(id) { return document.getElementById(id); }
 console.log('Calling loadWorkflows...');
 loadCachedTemplate();
 renderSqlTab();
-loadWorkflows().catch(e => console.error('loadWorkflows failed:', e));
+loadWorkflows(true).catch(e => console.error('loadWorkflows failed:', e));
 </script>
 </body>
 </html>
