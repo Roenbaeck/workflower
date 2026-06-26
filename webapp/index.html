@@ -707,7 +707,7 @@ button[onclick="removeTask()"] {
       <button class="btn-utility" type="button" onclick="triggerWorkflowImport()">Import workflow JSON</button>
       <button class="btn-utility" type="button" onclick="triggerTemplateLoad()">Load template file</button>
       <div class="sidebar-note" id="template-status">Template: not loaded</div>
-      <div class="sidebar-note">In browser-only mode, choose the sibling CreateTaskGraph.sisula file once after opening this page.</div>
+      <div class="sidebar-note">Hosted builds auto-load the bundled CreateTaskGraph.sisula template. When opening this page directly as a file, use Load template file.</div>
     </div>
     <div id="workflow-list" style="margin-top:0.5rem;"></div>
   </div>
@@ -824,6 +824,7 @@ let panState = { active: false, lastX: 0, lastY: 0, scaleX: 1, scaleY: 1 };
 let miniNavState = { active: false, lastX: 0, lastY: 0, scaleX: 1, scaleY: 1 };
 let templateText = '';
 let templateName = '';
+let bundledTemplatePromise = null;
 let lastRenderedSql = '';
 let draggedStepIndex = null;
 let stepDragState = null;
@@ -833,7 +834,8 @@ const WORKFLOW_INDEX_KEY = 'sisula-webapp:workflow-index';
 const TEMPLATE_TEXT_KEY = 'sisula-webapp:template-text';
 const TEMPLATE_NAME_KEY = 'sisula-webapp:template-name';
 const CURRENT_DRAFT_KEY = 'sisula-webapp:current-draft';
-const SQL_PLACEHOLDER = 'Load CreateTaskGraph.sisula from this folder, then click Render SQL.';
+const BUNDLED_TEMPLATE_NAME = 'CreateTaskGraph.sisula';
+const SQL_PLACEHOLDER = 'Hosted builds load the bundled CreateTaskGraph.sisula automatically. If you opened this page directly as a file, load the template manually, then click Render SQL.';
 
 function taskId(task, index) {
   return task.name || ('task_' + index);
@@ -928,6 +930,42 @@ function loadCachedTemplate() {
     templateName = '';
   }
   updateTemplateStatus();
+}
+
+function canAutoLoadBundledTemplate() {
+  return window.location.protocol !== 'file:' && typeof window.fetch === 'function';
+}
+
+async function loadBundledTemplate(forceReload) {
+  if (!canAutoLoadBundledTemplate()) return false;
+  if (!forceReload && bundledTemplatePromise) return bundledTemplatePromise;
+  bundledTemplatePromise = (async () => {
+    try {
+      let response = await window.fetch(BUNDLED_TEMPLATE_NAME, { cache: forceReload ? 'reload' : 'default' });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      let text = await response.text();
+      if (!text.trim()) throw new Error('Bundled template is empty');
+      cacheTemplate(text, BUNDLED_TEMPLATE_NAME);
+      renderSqlTab();
+      updateActionButtons();
+      return true;
+    } catch (e) {
+      console.warn('Bundled template auto-load failed:', e);
+      if (!templateText) {
+        renderSqlTab();
+        updateActionButtons();
+      }
+      return false;
+    } finally {
+      bundledTemplatePromise = null;
+    }
+  })();
+  return bundledTemplatePromise;
+}
+
+async function ensureTemplateLoaded() {
+  if (templateText) return true;
+  return loadBundledTemplate(false);
 }
 
 function updateTemplateStatus() {
@@ -1526,9 +1564,9 @@ async function importTemplateFile(event) {
   }
 }
 
-function renderSqlPreview() {
+async function renderSqlPreview() {
   if (!data) return;
-  if (!templateText) {
+  if (!await ensureTemplateLoaded()) {
     switchTab('sql');
     renderSqlTab();
     showStatus('Load CreateTaskGraph.sisula first', 'error');
@@ -1556,16 +1594,16 @@ function exportWorkflowJson() {
   showStatus('Workflow JSON exported', 'success');
 }
 
-function exportSqlFile() {
+async function exportSqlFile() {
   if (!data) return;
-  if (!templateText) {
+  if (!await ensureTemplateLoaded()) {
     switchTab('sql');
     renderSqlTab();
     showStatus('Load CreateTaskGraph.sisula first', 'error');
     return;
   }
   if (!lastRenderedSql || dirty) {
-    renderSqlPreview();
+    await renderSqlPreview();
     if (!lastRenderedSql) return;
   }
   downloadTextFile(workflowDownloadName('.sql'), lastRenderedSql, 'text/plain;charset=utf-8');
@@ -1673,7 +1711,7 @@ function setDirty(value) {
 
 function updateActionButtons() {
   let hasData = !!data;
-  let hasTemplate = !!templateText;
+  let hasTemplate = !!templateText || canAutoLoadBundledTemplate();
   let saveButton = getId('btn-save-local');
   let exportJsonButton = getId('btn-export-json');
   let renderButton = getId('btn-render-sql');
@@ -1690,11 +1728,11 @@ function updateActionButtons() {
   }
   if (renderButton) {
     renderButton.disabled = !hasData || !hasTemplate;
-    renderButton.title = !hasData ? 'Create or load a workflow first' : (hasTemplate ? 'Render DDL from the loaded Sisula template' : 'Load CreateTaskGraph.sisula first');
+    renderButton.title = !hasData ? 'Create or load a workflow first' : (templateText ? 'Render DDL from the loaded Sisula template' : 'Render DDL using the bundled CreateTaskGraph.sisula template');
   }
   if (exportSqlButton) {
     exportSqlButton.disabled = !hasData || !hasTemplate;
-    exportSqlButton.title = !hasData ? 'Create or load a workflow first' : (hasTemplate ? 'Download the generated SQL' : 'Load CreateTaskGraph.sisula first');
+    exportSqlButton.title = !hasData ? 'Create or load a workflow first' : (templateText ? 'Download the generated SQL' : 'Load or auto-fetch the template, then download the generated SQL');
   }
   if (deleteButton) {
     deleteButton.disabled = !hasData;
@@ -2454,9 +2492,9 @@ function saveLocal() {
 
 function exportJson() { exportWorkflowJson(); }
 
-function renderSql() { renderSqlPreview(); }
+async function renderSql() { await renderSqlPreview(); }
 
-function exportSql() { exportSqlFile(); }
+async function exportSql() { await exportSqlFile(); }
 
 function deleteLocal() { deleteWorkflow(); }
 
@@ -2468,6 +2506,9 @@ function getId(id) { return document.getElementById(id); }
 console.log('Calling loadWorkflows...');
 loadCachedTemplate();
 renderSqlTab();
+if (!templateText || templateName === BUNDLED_TEMPLATE_NAME) {
+  loadBundledTemplate(templateName === BUNDLED_TEMPLATE_NAME).catch(e => console.warn('Initial bundled template load failed:', e));
+}
 loadWorkflows(true).catch(e => console.error('loadWorkflows failed:', e));
 </script>
 </body>
