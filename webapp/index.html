@@ -1127,6 +1127,27 @@ function updateGraphToolbar() {
   if (release) release.disabled = !Object.values(nodeMap).some((node) => node.fixed);
 }
 
+function releaseFixedNode(node) {
+  if (!node || !node.fixed) return false;
+  node.fixed = false;
+  node.setUnstoppable(false);
+  node.start();
+  return true;
+}
+
+function resumeGraphAfterNodeRelease() {
+  updatePositions(false);
+  updateGraphToolbar();
+  LayoutEngine.equilibrium = false;
+  DrawingEngine.start(true);
+}
+
+function clearPendingNodeClick() {
+  if (!pendingClickTimer) return;
+  clearTimeout(pendingClickTimer);
+  pendingClickTimer = null;
+}
+
 function getGraphBounds() {
   let graphNodes = nodes.filter((node) => node && node.type !== NodeType.EDGE);
   if (!graphNodes.length) {
@@ -1791,29 +1812,10 @@ function drawGraph() {
     let circle = ce('circle', {
       class: 'node-circle' + (node.isRoot?' root-node':'') + (isSel?' node-selected':''),
       cx: node.xPosition, cy: node.yPosition, r: r,
+      'data-task-index': i,
       fill: node.isRoot ? '#1a5c1a' : '#1a3a5c',
       stroke: isSel ? '#ff6b6b' : (node.isRoot ? '#ffd700' : '#4a9eff'),
       'stroke-width': isSel ? 4 : (node.isRoot ? 2.5 : 1.5)
-    });
-    circle.addEventListener('click', function() {
-      if (Date.now() < suppressClickUntil) return;
-      clearTimeout(pendingClickTimer);
-      pendingClickTimer = setTimeout(function() {
-        pendingClickTimer = null;
-        if (!node.fixed) return;
-        node.fixed = false;
-        node.setUnstoppable(false);
-        node.start();
-        updatePositions();
-        LayoutEngine.equilibrium = false;
-        DrawingEngine.start(true);
-      }, 220);
-    });
-    circle.addEventListener('dblclick', function() {
-      clearTimeout(pendingClickTimer);
-      pendingClickTimer = null;
-      let idx = tasks.findIndex((tk, taskIndex) => taskId(tk, taskIndex) === taskId(t, i));
-      if (idx >= 0) selectTask(idx);
     });
     svgEl.appendChild(circle);
     if (node.fixed) {
@@ -1835,6 +1837,7 @@ let dragNode = null, dragStart = null, isDragging = false;
 let DRAG_THRESHOLD = 5;
 let suppressClickUntil = 0;
 let pendingClickTimer = null;
+let pressedNodeInfo = null;
 
 function screenToSVG(x, y) {
   if (!svgEl) return { x: x, y: y };
@@ -1959,6 +1962,10 @@ document.addEventListener('mousedown', function(e) {
     let cy = parseFloat(e.target.getAttribute('cy'));
     dragNode = findNodeByXY(cx, cy);
     if (dragNode) {
+      pressedNodeInfo = {
+        node: dragNode,
+        index: parseInt(e.target.getAttribute('data-task-index'), 10)
+      };
       dragStart = { x: e.clientX, y: e.clientY };
       isDragging = false;
       e.preventDefault();
@@ -2004,6 +2011,8 @@ document.addEventListener('mousemove', function(e) {
   if (!isDragging) {
     if (Math.max(Math.abs(e.clientX - dragStart.x), Math.abs(e.clientY - dragStart.y)) < DRAG_THRESHOLD) return;
     isDragging = true;
+    clearPendingNodeClick();
+    pressedNodeInfo = null;
   }
   let pt = screenToSVG(e.clientX, e.clientY);
   dragNode.xPosition = pt.x;
@@ -2018,7 +2027,7 @@ document.addEventListener('mousemove', function(e) {
   DrawingEngine.start(true);
 });
 
-document.addEventListener('mouseup', function() {
+document.addEventListener('mouseup', function(e) {
   if (stepDragState) {
     finishStepPointerDrag();
     return;
@@ -2034,7 +2043,25 @@ document.addEventListener('mouseup', function() {
   if (dragNode && isDragging) {
     dragNode.setUnstoppable(false);
     suppressClickUntil = Date.now() + 250;
+    clearPendingNodeClick();
+    pressedNodeInfo = null;
+  } else if (pressedNodeInfo && Date.now() >= suppressClickUntil) {
+    let pressed = pressedNodeInfo;
+    if (e.detail >= 2) {
+      clearPendingNodeClick();
+      if (Number.isInteger(pressed.index) && pressed.index >= 0) {
+        selectTask(pressed.index);
+      }
+    } else if (pressed.node && pressed.node.fixed) {
+      clearPendingNodeClick();
+      pendingClickTimer = setTimeout(function() {
+        pendingClickTimer = null;
+        if (!releaseFixedNode(pressed.node)) return;
+        resumeGraphAfterNodeRelease();
+      }, 220);
+    }
   }
+  pressedNodeInfo = null;
   dragNode = null;
   isDragging = false;
 });
