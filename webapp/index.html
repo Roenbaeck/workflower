@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Snowflake Workflower</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@700;800&display=swap" rel="stylesheet"/>
+<title>Workflower</title>
 <style>
 :root {
   --bg-ink: #17212f;
@@ -73,9 +76,12 @@ body { overflow: hidden; }
   filter: drop-shadow(0 8px 16px rgba(13, 22, 38, 0.28));
 }
 #sidebar h3 {
-  font: 700 1.9rem/1.05 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font: 800 1.9rem/1.05 "Raleway", "Avenir Next", "Segoe UI Variable", "Helvetica Neue", sans-serif;
   color: #f4efe8;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.025em;
+  font-variant-ligatures: common-ligatures contextual;
+  font-feature-settings: "liga" 1, "clig" 1;
+  text-rendering: optimizeLegibility;
   margin-bottom: 0;
 }
 #sidebar button { width: 100%; padding: 0.8rem 1rem; border: none; border-radius: var(--radius-md); cursor: pointer; font: inherit; }
@@ -683,8 +689,8 @@ button[onclick="removeTask()"] {
   <!-- Sidebar -->
   <div id="sidebar">
     <div class="sidebar-brand">
-      <img class="sidebar-logo" src="Snowflower.png" alt="Snowflake Workflower logo"/>
-      <h3>Snowflake Workflower</h3>
+      <img class="sidebar-logo" src="Snowflower.png" alt="Workflower logo"/>
+      <h3>Workflower</h3>
     </div>
     <button class="btn-new" onclick="newWorkflow()">+ New workflow</button>
     <div class="sidebar-tools">
