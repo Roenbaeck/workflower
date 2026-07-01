@@ -218,6 +218,10 @@ body { overflow: hidden; }
   fill: rgba(38, 122, 62, 0.8);
   stroke: rgba(240, 180, 79, 0.92);
 }
+#miniature .mini-node.selected {
+  stroke: #ff6b6b;
+  stroke-width: 2.6;
+}
 #miniature .mini-viewport {
   fill: rgba(255,255,255,0.08);
   stroke: rgba(255, 226, 178, 0.95);
@@ -1295,7 +1299,7 @@ function drawMiniMap() {
     let node = nodeMap[taskId(task, index)];
     if (!node) return;
     miniatureSvg.appendChild(mini('circle', {
-      class: 'mini-node' + (node.isRoot ? ' root' : ''),
+      class: 'mini-node' + (node.isRoot ? ' root' : '') + (index === selectedTask ? ' selected' : ''),
       cx: node.xPosition,
       cy: node.yPosition,
       r: node.isRoot ? 12 : 8,
