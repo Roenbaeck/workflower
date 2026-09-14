@@ -1,0 +1,169 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { test } = require('node:test');
+
+const html = fs.readFileSync('webapp/index.html', 'utf8');
+const css = fs.readFileSync('webapp/editor.css', 'utf8');
+const markup = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');
+
+function sourceBetween(start, end) {
+  const startIndex = html.indexOf(start);
+  const endIndex = html.indexOf(end, startIndex);
+  assert.ok(startIndex >= 0 && endIndex > startIndex);
+  return html.slice(startIndex, endIndex);
+}
+
+function element(dataset = {}) {
+  const classes = new Set();
+  return {
+    dataset, hidden: false, attributes: {}, focused: false,
+    classList: {
+      contains: (name) => classes.has(name),
+      toggle(name, force = !classes.has(name)) {
+        if (force) classes.add(name);
+        else classes.delete(name);
+        return force;
+      },
+    },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    focus() { this.focused = true; },
+  };
+}
+
+function createWorkspace() {
+  const names = ['workflow', 'task', 'steps', 'json', 'sql'];
+  const tabs = names.map((name) => element({ tab: name }));
+  const panels = names.map((name) => ({ ...element(), id: 'tab-' + name }));
+  const views = ['graph', 'details'].map((view) => element({ view }));
+  const elements = Object.fromEntries(['editor', 'app', 'task-buttons', 'btn-library',
+    'library-backdrop', 'workflow-search', 'btn-inspector-expand'].map((name) => [name, element()]));
+  const rendered = [];
+  const context = vm.createContext({
+    activeInspectorTab: 'task', selectedTask: 0,
+    data: { TASKS: [{ name: 'First' }, { name: 'Second' }] },
+    getId: (id) => elements[id],
+    document: {
+      querySelectorAll: (selector) => ({ '.tab': tabs, '.tab-content': panels, '[data-tab]': tabs, '[data-view]': views })[selector],
+    },
+    window: { matchMedia: () => ({ matches: true }) },
+    renderTaskForm: () => rendered.push('task'),
+    renderStepsForm: () => rendered.push('steps'),
+    renderJsonPreview: () => rendered.push('json'),
+    renderSqlTab: () => rendered.push('sql'),
+    renderTaskButtons() {}, renderGraph() {}, persistCurrentDraft() {},
+  });
+  vm.runInContext(sourceBetween('function switchTab(', 'function renderTaskForm('), context);
+  vm.runInContext(sourceBetween('function selectTask(', '// --- Graph ---'), context);
+  return { context, tabs, panels, views, elements, rendered };
+}
+
+test('inline application scripts parse', () => {
+  for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)) {
+    assert.doesNotThrow(() => new vm.Script(match[1]));
+  }
+});
+
+test('task inspector retains editable fields and the predecessor container', () => {
+  const elements = { 'tab-task': { innerHTML: '' }, 'f-after': { innerHTML: '' } };
+  const context = vm.createContext({
+    data: { TASKS: [{ name: 'Task A', after: [{ name: 'Task B' }] }, { name: 'Task B' }] },
+    selectedTask: 0,
+    document: { getElementById: (id) => elements[id] },
+    getId: (id) => elements[id],
+    esc: (text) => text,
+    associateFormLabels() {},
+  });
+  vm.runInContext(sourceBetween('function renderTaskForm(', 'function associateFormLabels('), context);
+  context.renderTaskForm();
+  for (const id of ['f-name', 'f-sched', 'f-desc', 'f-state', 'f-root', 'f-after']) {
+    assert.ok(elements['tab-task'].innerHTML.includes('id="' + id + '"'), id);
+  }
+  assert.match(elements['f-after'].innerHTML, /value="Task B" checked/);
+  assert.doesNotMatch(elements['tab-task'].innerHTML, /<script|<link|id="sidebar"/);
+});
+
+test('markup has unique IDs and accessible tab targets', () => {
+  const ids = Array.from(markup.matchAll(/\bid="([^"]+)"/g), (match) => match[1]);
+  assert.equal(ids.length, new Set(ids).size);
+  for (const match of markup.matchAll(/(?:aria-controls|aria-labelledby|for)="([^"]+)"/g)) {
+    assert.ok(ids.includes(match[1]), match[1]);
+  }
+  assert.ok(markup.indexOf('id="workspace-header"') < markup.indexOf('id="editor"'));
+  assert.match(css, /#editor\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 360px/);
+  assert.match(css, /\.tab-content\s*\{[^}]*overflow: auto/);
+});
+
+test('each inspector tab selects exactly one panel and updates accessibility state', () => {
+  const workspace = createWorkspace();
+  for (const name of ['workflow', 'task', 'steps', 'json', 'sql']) {
+    workspace.context.switchTab(name);
+    assert.deepEqual(workspace.tabs.filter((tab) => tab.classList.contains('active')).map((tab) => tab.dataset.tab), [name]);
+    assert.deepEqual(workspace.panels.filter((panel) => panel.classList.contains('active')).map((panel) => panel.id), ['tab-' + name]);
+    assert.equal(workspace.tabs.filter((tab) => tab.tabIndex === 0).length, 1);
+    assert.equal(workspace.elements['task-buttons'].hidden, !['task', 'steps'].includes(name));
+  }
+});
+
+test('task selection opens details and preserves the Steps view', () => {
+  const workspace = createWorkspace();
+  workspace.context.switchTab('steps');
+  workspace.context.selectTask(1);
+  assert.equal(workspace.context.selectedTask, 1);
+  assert.equal(workspace.context.activeInspectorTab, 'steps');
+  assert.equal(workspace.elements.editor.dataset.mobileView, 'details');
+  workspace.context.switchTab('workflow');
+  workspace.context.selectTask(0);
+  assert.equal(workspace.context.activeInspectorTab, 'task');
+});
+
+test('mobile view switch keeps pressed state synchronized', () => {
+  const workspace = createWorkspace();
+  for (const view of ['details', 'graph']) {
+    workspace.context.setMobileView(view);
+    assert.equal(workspace.elements.editor.dataset.mobileView, view);
+    workspace.views.forEach((button) => assert.equal(button.attributes['aria-pressed'], String(button.dataset.view === view)));
+  }
+});
+
+test('inspector tabs support arrow-key wrapping', () => {
+  const workspace = createWorkspace();
+  let prevented = false;
+  workspace.context.handleInspectorTabKey({ key: 'ArrowLeft', target: workspace.tabs[0], preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(workspace.context.activeInspectorTab, 'sql');
+  assert.equal(workspace.tabs[4].focused, true);
+});
+
+test('library toggle updates visibility and restores focus', () => {
+  const workspace = createWorkspace();
+  workspace.context.toggleLibrary(true);
+  assert.equal(workspace.elements['library-backdrop'].hidden, false);
+  assert.equal(workspace.elements['workflow-search'].focused, true);
+  workspace.context.toggleLibrary(false);
+  assert.equal(workspace.elements['library-backdrop'].hidden, true);
+  assert.equal(workspace.elements['btn-library'].focused, true);
+});
+
+test('inspector expansion updates state and accessible label', () => {
+  const workspace = createWorkspace();
+  workspace.context.toggleInspectorWidth();
+  assert.equal(workspace.elements.editor.classList.contains('inspector-wide'), true);
+  assert.equal(workspace.elements['btn-inspector-expand'].attributes['aria-pressed'], 'true');
+  workspace.context.toggleInspectorWidth();
+  assert.equal(workspace.elements['btn-inspector-expand'].attributes['aria-label'], 'Expand inspector');
+});
+
+test('fit uses graph bounds and zoom is centered', () => {
+  let viewport = { x: 10, y: 20, width: 800, height: 450 };
+  const context = vm.createContext({
+    currentViewBox: () => viewport,
+    getGraphBounds: () => ({ x: -50, y: -60, width: 500, height: 300 }),
+    setViewBox: (x, y, width, height) => { viewport = { x, y, width, height }; },
+  });
+  vm.runInContext(sourceBetween('function resetViewport(', 'function beginGraphTouch('), context);
+  context.zoomGraphBy(0.8);
+  assert.deepEqual(viewport, { x: 90, y: 65, width: 640, height: 360 });
+  context.resetViewport();
+  assert.deepEqual(viewport, { x: -50, y: -60, width: 500, height: 300 });
+});

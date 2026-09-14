@@ -9,780 +9,138 @@
 <link rel="manifest" href="site.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <title>Workflower</title>
-<style>
-:root {
-  --bg-ink: #17212f;
-  --bg-deep: #203144;
-  --bg-panel: rgba(255, 250, 243, 0.84);
-  --bg-panel-strong: rgba(255, 252, 247, 0.94);
-  --bg-soft: rgba(244, 236, 222, 0.72);
-  --bg-sidebar: linear-gradient(180deg, #1c2130 0%, #222838 42%, #171d29 100%);
-  --text-main: #1c2430;
-  --text-muted: #6b7280;
-  --text-soft: #8a94a5;
-  --line-soft: rgba(85, 69, 42, 0.14);
-  --line-strong: rgba(23, 33, 47, 0.16);
-  --accent: #2f8f83;
-  --accent-strong: #256f66;
-  --accent-warm: #c18b3c;
-  --danger: #c74d45;
-  --success: #2d9f57;
-  --graph-bg: radial-gradient(circle at top, rgba(78, 150, 189, 0.16), transparent 34%), linear-gradient(160deg, #171f2f 0%, #1d2439 44%, #111827 100%);
-  --shadow-soft: 0 24px 48px rgba(33, 26, 16, 0.14);
-  --shadow-card: 0 18px 32px rgba(20, 18, 15, 0.09);
-  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.35);
-  --radius-xl: 26px;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body {
-  height: 100%;
-  font: 14px/1.4 "Avenir Next", "Segoe UI Variable", "Helvetica Neue", sans-serif;
-  color: var(--text-main);
-  background:
-    radial-gradient(circle at top left, rgba(193, 139, 60, 0.13), transparent 28%),
-    radial-gradient(circle at top right, rgba(47, 143, 131, 0.18), transparent 30%),
-    linear-gradient(180deg, #f5efe4 0%, #ede3d2 100%);
-}
-body { overflow: hidden; }
-#app {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  height: 100%;
-}
-#sidebar {
-  background: var(--bg-sidebar);
-  color: #e7e6eb;
-  padding: 1.5rem 1.15rem;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  border-right: 1px solid rgba(255,255,255,0.06);
-  box-shadow: inset -1px 0 0 rgba(255,255,255,0.04);
-}
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  margin-bottom: 0.35rem;
-}
-.sidebar-logo {
-  width: 3.3rem;
-  height: 3.3rem;
-  flex: 0 0 auto;
-  object-fit: contain;
-  filter: drop-shadow(0 8px 16px rgba(13, 22, 38, 0.28));
-}
-#sidebar h3 {
-  font: 800 1.9rem/1.05 "Raleway", "Avenir Next", "Segoe UI Variable", "Helvetica Neue", sans-serif;
-  color: #f4efe8;
-  letter-spacing: -0.025em;
-  font-variant-ligatures: common-ligatures contextual;
-  font-feature-settings: "liga" 1, "clig" 1;
-  text-rendering: optimizeLegibility;
-  margin-bottom: 0;
-}
-#sidebar button { width: 100%; padding: 0.8rem 1rem; border: none; border-radius: var(--radius-md); cursor: pointer; font: inherit; }
-#sidebar .btn-new {
-  background: linear-gradient(135deg, #31b24f 0%, #208b64 100%);
-  color: #f4fff4;
-  font-weight: 700;
-  font-size: 1rem;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 12px 24px rgba(22, 104, 59, 0.28);
-}
-#sidebar .btn-new:hover { transform: translateY(-1px); }
-.workflow-item {
-  padding: 0.85rem 0.95rem;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: 0.94rem;
-  font-weight: 600;
-  color: #d8deeb;
-  transition: background 0.18s, transform 0.18s, color 0.18s;
-  border: 1px solid rgba(255,255,255,0.04);
-  background: rgba(255,255,255,0.03);
-}
-.workflow-item:hover { background: rgba(244, 239, 232, 0.11); transform: translateX(2px); }
-.workflow-item.active {
-  background: linear-gradient(135deg, rgba(118, 112, 171, 0.42), rgba(93, 112, 155, 0.52));
-  color: #fff8ed;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
-}
-#main {
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  padding: 1.2rem;
-  position: relative;
-  background:
-    radial-gradient(circle at 12% 12%, rgba(193, 139, 60, 0.09), transparent 22%),
-    radial-gradient(circle at 88% 12%, rgba(47, 143, 131, 0.12), transparent 28%),
-    linear-gradient(180deg, rgba(253, 247, 238, 0.72), rgba(239, 230, 214, 0.9));
-}
-#main::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(255,255,255,0.34), transparent 22%, transparent 74%, rgba(255,255,255,0.18));
-}
-.empty-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: rgba(28, 36, 48, 0.6);
-  font: 600 1.18rem/1.4 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-  letter-spacing: 0.01em;
-}
-/* Top row: graph + properties */
-.top-row { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(290px, 0.9fr); gap: 1rem; padding: 0; min-height: 380px; }
-#editor { display: flex; flex-direction: column; gap: 1rem; position: relative; z-index: 1; }
-#graph-container {
-  background: var(--graph-bg);
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  position: relative;
-  min-height: 360px;
-  border: 1px solid rgba(255,255,255,0.08);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 28px 52px rgba(16, 20, 33, 0.26);
-}
-#graph-container svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-#graph-container::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 22% 18%, rgba(193, 139, 60, 0.09), transparent 22%),
-    radial-gradient(circle at 76% 78%, rgba(47, 143, 131, 0.12), transparent 22%);
-  pointer-events: none;
-}
-#graph-toolbar { position: absolute; top: 0.95rem; left: 1rem; display: flex; gap: 0.45rem; z-index: 2; flex-wrap: wrap; max-width: calc(100% - 2rem); }
-#graph-toolbar button {
-  padding: 0.42rem 0.82rem;
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 999px;
-  background: rgba(14, 20, 33, 0.66);
-  color: #eff4fa;
-  cursor: pointer;
-  font: 600 0.75rem/1 "Avenir Next", "Segoe UI Variable", sans-serif;
-  letter-spacing: 0.02em;
-  backdrop-filter: blur(10px);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
-}
-#graph-toolbar button:hover { background: rgba(28, 39, 61, 0.86); }
-#graph-toolbar button:disabled { opacity: 0.45; cursor: default; }
-#miniature {
-  position: absolute;
-  right: 1rem;
-  bottom: 1rem;
-  width: 190px;
-  height: 138px;
-  border-radius: 18px;
-  background: rgba(10, 16, 28, 0.72);
-  border: 1px solid rgba(255,255,255,0.1);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 18px 30px rgba(0, 0, 0, 0.24);
-  backdrop-filter: blur(10px);
-  z-index: 2;
-  overflow: hidden;
-}
-#miniature svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-#miniature .mini-backdrop {
-  fill: rgba(255,255,255,0.02);
-}
-#miniature .mini-edge {
-  stroke: rgba(111, 188, 229, 0.52);
-  stroke-width: 1.35;
-  fill: none;
-}
-#miniature .mini-node {
-  fill: rgba(51, 133, 233, 0.24);
-  stroke: rgba(96, 165, 250, 0.88);
-  stroke-width: 1.3;
-}
-#miniature .mini-node.root {
-  fill: rgba(38, 122, 62, 0.8);
-  stroke: rgba(240, 180, 79, 0.92);
-}
-#miniature .mini-node.selected {
-  stroke: #ff6b6b;
-  stroke-width: 2.6;
-}
-#miniature .mini-viewport {
-  fill: rgba(255,255,255,0.08);
-  stroke: rgba(255, 226, 178, 0.95);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-#miniature.dragging { cursor: move; }
-#graph-container .node-circle { cursor: pointer; transition: filter 0.15s; }
-#graph-container .node-circle:hover { filter: brightness(1.3); }
-#graph-container .node-selected { stroke: #ff6b6b !important; stroke-width: 4 !important; }
-#graph-container .node-fixation { fill: #f8fafc; stroke: #0f172a; stroke-width: 1; pointer-events: none; }
-#graph-container .node-label { fill: rgba(241, 245, 249, 0.92); font-size: 10px; font-family: "Avenir Next", sans-serif; }
-#graph-container .edge-line { stroke: rgba(103, 187, 227, 0.82); stroke-width: 1.5; fill: none; opacity: 0.6; }
-#graph-container .root-node { stroke: #f0b44f; stroke-width: 2.5; }
-/* Properties panel */
-#props {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  min-height: 0;
-  padding: 1.2rem;
-  background: var(--bg-panel);
-  border: 1px solid rgba(255,255,255,0.46);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-soft), var(--shadow-inset);
-  backdrop-filter: blur(16px);
-}
-#props > label:first-child { margin-top: 0; }
-#props label, .form-group label {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  margin-top: 0.15rem;
-  display: block;
-}
-#props input, #props select, .form-group input, .form-group select, .form-group textarea, .config-area {
-  width: 100%;
-  padding: 0.72rem 0.82rem;
-  border: 1px solid rgba(35, 47, 63, 0.1);
-  border-radius: var(--radius-md);
-  font: inherit;
-  color: var(--text-main);
-  background: rgba(255,255,255,0.72);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
-}
-#props input:focus, #props select:focus, .form-group input:focus, .form-group select:focus, .form-group textarea:focus, .config-area:focus {
-  outline: none;
-  border-color: rgba(47, 143, 131, 0.5);
-  box-shadow: 0 0 0 3px rgba(47, 143, 131, 0.13);
-  background: rgba(255,255,255,0.92);
-}
-/* Metrics */
-.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.85rem; padding: 0; }
-.metric {
-  background: linear-gradient(180deg, rgba(255,253,249,0.82), rgba(247, 239, 226, 0.74));
-  border: 1px solid rgba(255,255,255,0.48);
-  border-radius: var(--radius-lg);
-  padding: 1rem 1rem 0.95rem;
-  text-align: center;
-  box-shadow: var(--shadow-card), var(--shadow-inset);
-}
-.metric .value { font: 700 2rem/1 "Avenir Next", "Helvetica Neue", sans-serif; letter-spacing: -0.05em; color: #213042; }
-.metric .label { font-size: 0.76rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; margin-top: 0.2rem; }
-/* Task buttons */
-.task-buttons {
-  display: flex;
-  gap: 0.45rem;
-  padding: 0.1rem 0;
-  flex-wrap: wrap;
-}
-.task-btn {
-  padding: 0.55rem 0.95rem;
-  border: 1px solid rgba(42, 56, 77, 0.12);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.66);
-  cursor: pointer;
-  font: 600 0.88rem/1 "Avenir Next", sans-serif;
-  color: #304153;
-  transition: all 0.15s;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
-}
-.task-btn:hover { background: rgba(255,255,255,0.9); border-color: rgba(47, 143, 131, 0.25); }
-.task-btn.active {
-  background: linear-gradient(135deg, #3b9ea0 0%, #286f83 100%);
-  color: #f7fcfc;
-  border-color: rgba(31, 79, 93, 0.3);
-  font-weight: 700;
-  box-shadow: 0 12px 24px rgba(43, 95, 103, 0.18);
-}
-/* Tabs */
-.tabs {
-  display: inline-flex;
-  align-self: flex-start;
-  padding: 0.35rem;
-  gap: 0.25rem;
-  background: rgba(255,252,247,0.58);
-  border: 1px solid rgba(255,255,255,0.46);
-  border-radius: 999px;
-  box-shadow: var(--shadow-card), var(--shadow-inset);
-}
-.tab {
-  padding: 0.65rem 1rem;
-  cursor: pointer;
-  font-size: 0.88rem;
-  border-bottom: 0;
-  border-radius: 999px;
-  color: var(--text-muted);
-  transition: all 0.15s;
-  font-weight: 600;
-}
-.tab:hover { color: var(--accent-strong); }
-.tab.active {
-  background: linear-gradient(135deg, rgba(47, 143, 131, 0.16), rgba(35, 87, 123, 0.14));
-  color: var(--accent-strong);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
-}
-.tab-content {
-  padding: 1.35rem;
-  display: none;
-  background: var(--bg-panel-strong);
-  border: 1px solid rgba(255,255,255,0.52);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-soft), var(--shadow-inset);
-}
-.tab-content.active { display: block; }
-/* Form grid */
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-.form-grid.full { grid-template-columns: 1fr; }
-.form-group { display: flex; flex-direction: column; gap: 0.35rem; }
-.form-group textarea { resize: vertical; min-height: 84px; }
-.check-option {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 0.55rem;
-  flex-wrap: nowrap;
-  text-transform: none !important;
-  letter-spacing: 0 !important;
-  font-size: 0.95rem !important;
-  color: var(--text-main) !important;
-  margin-top: 0 !important;
-  line-height: 1.2;
-}
-.check-option input {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  flex: 0 0 auto;
-}
-#f-after {
-  display: grid;
-  gap: 0.45rem;
-  padding-top: 0.2rem;
-}
-/* Steps */
-.step { position: relative; border: 1px solid rgba(37, 48, 62, 0.12); border-radius: var(--radius-lg); margin-bottom: 0.75rem; overflow: hidden; background: rgba(255,255,255,0.58); box-shadow: inset 0 1px 0 rgba(255,255,255,0.55); transition: transform 0.14s ease, opacity 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease, background 0.14s ease; }
-.step-header { display: flex; align-items: center; gap: 0.6rem; padding: 0.85rem 0.95rem; cursor: pointer; background: rgba(240, 233, 219, 0.62); transition: background 0.14s ease; }
-.step-header:hover { background: rgba(235, 228, 214, 0.86); }
-.step.dragging {
-  opacity: 0.92;
-  transform: scale(1.015);
-  z-index: 2;
-  border-color: rgba(47, 143, 131, 0.55);
-  background: rgba(255, 252, 247, 0.98);
-  box-shadow: 0 18px 32px rgba(20, 18, 15, 0.14), 0 0 0 3px rgba(47, 143, 131, 0.18);
-}
-.step.dragging .step-header {
-  background: linear-gradient(135deg, rgba(233, 248, 244, 0.96), rgba(247, 241, 231, 0.96));
-}
-.step.dragging::before {
-  content: "Dragging";
-  position: absolute;
-  right: 0.9rem;
-  top: 0.55rem;
-  padding: 0.22rem 0.6rem;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #c18b3c 0%, #9b6423 100%);
-  color: #fffaf3;
-  font: 700 0.68rem/1 "Avenir Next", sans-serif;
-  letter-spacing: 0.04em;
-  pointer-events: none;
-  box-shadow: 0 10px 18px rgba(155, 100, 35, 0.22);
-}
-.step.drop-before,
-.step.drop-after {
-  border-color: rgba(47, 143, 131, 0.5);
-  background: rgba(244, 252, 249, 0.96);
-  box-shadow: 0 10px 22px rgba(30, 56, 68, 0.08), 0 0 0 2px rgba(47, 143, 131, 0.12);
-}
-.step.drop-before .step-header,
-.step.drop-after .step-header {
-  background: rgba(229, 245, 241, 0.96);
-}
-.step.drop-before::before,
-.step.drop-after::before {
-  position: absolute;
-  right: 0.9rem;
-  padding: 0.22rem 0.6rem;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #2f8f83 0%, #256f66 100%);
-  color: #f6fffd;
-  font: 700 0.68rem/1 "Avenir Next", sans-serif;
-  letter-spacing: 0.04em;
-  pointer-events: none;
-  box-shadow: 0 10px 18px rgba(37, 111, 102, 0.2);
-}
-.step.drop-before::after,
-.step.drop-after::after {
-  content: "";
-  position: absolute;
-  left: 0.9rem;
-  right: 0.9rem;
-  height: 5px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(47, 143, 131, 0.18), rgba(47, 143, 131, 0.92), rgba(47, 143, 131, 0.18));
-  pointer-events: none;
-}
-.step.drop-before::before {
-  content: "Drop before";
-  top: 0.55rem;
-}
-.step.drop-before::after {
-  top: 0.42rem;
-}
-.step.drop-after::before {
-  content: "Drop after";
-  bottom: 0.55rem;
-}
-.step.drop-after::after {
-  bottom: 0.42rem;
-}
-.step-drag-handle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.8rem;
-  height: 1.8rem;
-  border-radius: 999px;
-  background: rgba(28, 36, 48, 0.08);
-  color: var(--text-soft);
-  cursor: grab;
-  user-select: none;
-  font: 700 0.82rem/1 "Avenir Next", sans-serif;
-  letter-spacing: 0.12em;
-  transition: background 0.14s ease, color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
-}
-.step-drag-handle:hover { background: rgba(28, 36, 48, 0.12); color: var(--text-main); }
-.step-drag-handle:active { cursor: grabbing; }
-body.step-drag-active .step-drag-handle {
-  cursor: grabbing;
-}
-body.step-drag-active .step:not(.dragging) {
-  opacity: 0.97;
-}
-body.step-drag-active .step.dragging .step-drag-handle {
-  background: rgba(47, 143, 131, 0.14);
-  color: var(--accent-strong);
-  transform: scale(1.06);
-  box-shadow: 0 0 0 2px rgba(47, 143, 131, 0.16);
-}
-.step-header .badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
-.step-body { padding: 0.95rem; display: none; }
-.step.open .step-body { display: block; }
-.step-actions {
-  margin-top: 0.65rem;
-  display: flex;
-  gap: 0.55rem;
-  flex-wrap: wrap;
-}
-.step-actions button {
-  padding: 0.68rem 1.05rem;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  font: 700 0.92rem/1 "Avenir Next", sans-serif;
-  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
-}
-.step-actions button:hover {
-  transform: translateY(-1px);
-}
-.step-actions .btn-step-add {
-  background: linear-gradient(135deg, #31b24f 0%, #1f8f65 100%);
-  color: #fff;
-  box-shadow: 0 12px 22px rgba(31, 143, 101, 0.22);
-}
-.step-actions .btn-step-remove {
-  background: linear-gradient(135deg, #fff7ec 0%, #f1e0c3 100%);
-  color: #6f4b16;
-  border: 1px solid rgba(193, 139, 60, 0.28);
-  box-shadow: 0 12px 22px rgba(155, 100, 35, 0.12);
-}
-.badge-proc { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; }
-.badge-sql { background: rgba(34, 197, 94, 0.14); color: #166534; }
-.badge-lineage { background: rgba(245, 158, 11, 0.18); color: #9a5b00; }
-.badge-rows { background: rgba(14, 165, 233, 0.15); color: #0f5f88; }
-.badge-return_value { background: rgba(239, 68, 68, 0.12); color: #b42318; }
-/* Buttons at bottom */
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 1rem 1.15rem;
-  border-top: 1px solid var(--line-soft);
-  background: rgba(255, 249, 240, 0.72);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-card), var(--shadow-inset);
-}
-.actions button {
-  padding: 0.8rem 1.35rem;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  font: 700 1rem/1 "Avenir Next", sans-serif;
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.actions button:hover { transform: translateY(-1px); }
-.actions button:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
-.actions .btn-save { background: linear-gradient(135deg, #31b24f 0%, #1f8f65 100%); color: #fff; box-shadow: 0 14px 26px rgba(31, 143, 101, 0.24); }
-.actions .btn-install { background: linear-gradient(135deg, #1b7bdc 0%, #1758a7 100%); color: #fff; box-shadow: 0 14px 26px rgba(23, 88, 167, 0.24); }
-.actions .btn-render { background: linear-gradient(135deg, #1b7bdc 0%, #1758a7 100%); color: #fff; box-shadow: 0 14px 26px rgba(23, 88, 167, 0.24); }
-.actions .btn-export { background: rgba(255,255,255,0.82); color: #233246; border: 1px solid rgba(35, 50, 70, 0.14); }
-.actions .btn-delete { background: linear-gradient(135deg, #d14842 0%, #b7202f 100%); color: #fff; margin-left: auto; box-shadow: 0 14px 26px rgba(183, 32, 47, 0.2); }
-.actions .btn-add-task { background: rgba(255,255,255,0.82); color: #233246; border: 1px solid rgba(35, 50, 70, 0.14); }
-/* JSON tab */
-#tab-json pre, #tab-sql pre { background: rgba(246, 239, 226, 0.72); border: 1px solid rgba(35,50,70,0.08); border-radius: var(--radius-lg); padding: 1rem; font-size: 0.82rem; overflow-x: auto; max-height: 400px; overflow-y: auto; color: #304153; white-space: pre-wrap; }
-/* Status */
-#status { position: fixed; bottom: 1rem; right: 1rem; padding: 0.75rem 1rem; border-radius: 999px; font-size: 0.82rem; font-weight: 700; opacity: 0; transition: opacity 0.3s; z-index: 100; box-shadow: 0 18px 34px rgba(26, 28, 34, 0.18); }
-#status.show { opacity: 1; }
-#status.success { background: rgba(231, 255, 237, 0.92); color: #1b7f44; }
-#status.error { background: rgba(255, 235, 233, 0.95); color: #b42318; }
-#install-modal {
-  position: fixed;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 1.25rem;
-  background: rgba(10, 14, 20, 0.58);
-  backdrop-filter: blur(8px);
-  z-index: 140;
-}
-#install-modal.show { display: flex; }
-#install-modal-panel {
-  width: min(920px, 100%);
-  max-height: min(82vh, 760px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: 22px;
-  border: 1px solid rgba(119, 237, 170, 0.16);
-  background: linear-gradient(180deg, #0f1724 0%, #0b111b 100%);
-  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.34);
-}
-#install-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.15rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  color: #edf7ff;
-}
-#install-modal-title {
-  font: 700 1rem/1.2 "SFMono-Regular", "Menlo", monospace;
-  letter-spacing: 0.01em;
-}
-#install-modal-state {
-  padding: 0.28rem 0.62rem;
-  border-radius: 999px;
-  font: 700 0.74rem/1 "SFMono-Regular", "Menlo", monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  background: rgba(148, 163, 184, 0.16);
-  color: #cbd5e1;
-}
-#install-modal-state.running { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
-#install-modal-state.success { background: rgba(34, 197, 94, 0.16); color: #86efac; }
-#install-modal-state.error { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
-#install-log {
-  margin: 0;
-  padding: 1rem 1.15rem 1.2rem;
-  overflow: auto;
-  flex: 1;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font: 0.82rem/1.55 "SFMono-Regular", "Menlo", monospace;
-  color: #b8f7c6;
-  background:
-    radial-gradient(circle at top right, rgba(34, 197, 94, 0.08), transparent 22%),
-    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
-}
-#install-modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0.9rem 1.15rem 1.1rem;
-  border-top: 1px solid rgba(255,255,255,0.08);
-}
-#install-modal-footer button {
-  padding: 0.68rem 1.05rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
-  color: #edf7ff;
-  cursor: pointer;
-  font: 700 0.84rem/1 "Avenir Next", sans-serif;
-}
-#install-modal-footer button:disabled { opacity: 0.45; cursor: default; }
-/* Config textarea */
-.config-area { font: 0.8rem/1.4 "SFMono-Regular", "Menlo", monospace; resize: vertical; min-height: 72px; }
-#wf-config { flex: 1 1 auto; }
-
-button[onclick="removeTask()"] {
-  margin-top: 0.75rem !important;
-  color: var(--danger) !important;
-  border: 1px solid rgba(199, 77, 69, 0.28) !important;
-  background: rgba(255, 245, 243, 0.76) !important;
-  padding: 0.55rem 0.9rem !important;
-  border-radius: 999px !important;
-  font-weight: 700;
-}
-
-#workflow-list { display: flex; flex-direction: column; gap: 0.55rem; }
-.sidebar-tools { display: flex; flex-direction: column; gap: 0.55rem; margin-top: 0.85rem; }
-#sidebar .btn-utility {
-  width: 100%;
-  padding: 0.72rem 0.9rem;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: var(--radius-md);
-  background: rgba(255,255,255,0.06);
-  color: #eef3fb;
-  cursor: pointer;
-  text-align: left;
-  font: 600 0.9rem/1.2 "Avenir Next", "Segoe UI Variable", sans-serif;
-}
-#sidebar .btn-utility:hover { background: rgba(255,255,255,0.12); }
-.sidebar-note {
-  color: #b8c2d5;
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-@media (max-width: 1180px) {
-  #app { grid-template-columns: 220px minmax(0, 1fr); }
-  .top-row { grid-template-columns: 1fr; }
-  #props { order: -1; }
-}
-
-@media (max-width: 900px) {
-  body { overflow: auto; }
-  #app { grid-template-columns: 1fr; height: auto; min-height: 100%; }
-  #sidebar { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  #main { padding: 1rem; }
-  .metrics { grid-template-columns: 1fr; }
-  .form-grid { grid-template-columns: 1fr; }
-  .actions { flex-wrap: wrap; }
-  .actions .btn-delete { margin-left: 0; }
-}
-
-@media (max-width: 640px) {
-  .sidebar-brand { gap: 0.65rem; }
-  .sidebar-logo {
-    width: 3rem;
-    height: 3rem;
-  }
-  #sidebar h3 { font-size: 1.55rem; }
-  #graph-toolbar { right: 0.75rem; left: 0.75rem; }
-  #miniature {
-    width: 150px;
-    height: 110px;
-    right: 0.75rem;
-    bottom: 0.75rem;
-  }
-  .tab-content { padding: 1rem; }
-  .task-btn { width: 100%; justify-content: center; }
-}
-</style>
+<link rel="stylesheet" href="editor.css"/>
+<script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" onload="lucide.createIcons()"></script>
 </head>
 <body>
 <div id="app">
   <!-- Sidebar -->
-  <div id="sidebar">
+  <aside id="sidebar" aria-label="Workflow library">
     <div class="sidebar-brand">
-      <img class="sidebar-logo" src="Snowflower.svg" alt="Workflower logo"/>
+      <img class="brand-icon" src="Snowflower.svg" width="28" height="28" alt=""/>
       <h3>Workflower</h3>
+      <button class="icon-button library-close" type="button" onclick="toggleLibrary(false)" title="Close workflow library" aria-label="Close workflow library"><i data-lucide="x">X</i></button>
     </div>
     <button class="btn-new" onclick="newWorkflow()">+ New workflow</button>
     <div class="sidebar-tools">
       <button class="btn-utility" id="btn-read-snowflake" type="button" onclick="readFromSnowflake()" title="Refresh saved workflows and load a definition from Snowflake">Read from Snowflake</button>
       <button class="btn-utility" type="button" onclick="triggerWorkflowImport()">Import workflow JSON</button>
+    </div>
+    <div class="library-heading">Saved workflows</div>
+    <label class="sr-only" for="workflow-search">Find a workflow</label>
+    <input id="workflow-search" type="search" placeholder="Find a workflow" oninput="renderSidebar()"/>
+    <nav id="workflow-list" aria-label="Saved workflows"></nav>
+    <div class="library-footer">
       <button class="btn-utility" type="button" onclick="triggerTemplateLoad()">Load template file</button>
       <div class="sidebar-note" id="template-status">Template: not loaded</div>
-      <div class="sidebar-note">Hosted builds auto-load the bundled templates/CreateTaskGraph.sql template. When opening this page directly as a file, use Load template file.</div>
     </div>
-    <div id="workflow-list" style="margin-top:0.5rem;"></div>
-  </div>
+  </aside>
+  <button id="library-backdrop" type="button" onclick="toggleLibrary(false)" aria-label="Close workflow library" hidden></button>
 
   <!-- Main -->
-  <div id="main">
-    <div id="empty-state" class="empty-state">Select a workflow from the sidebar or create a new one.</div>
+  <main id="main">
+    <header id="workspace-header">
+      <button class="icon-button library-toggle" id="btn-library" type="button" onclick="toggleLibrary()" title="Workflower workflow library" aria-label="Workflower workflow library" aria-controls="sidebar" aria-expanded="false"><img class="brand-icon" src="Snowflower.svg" width="24" height="24" alt=""/></button>
+      <div class="workflow-identity">
+        <span class="eyebrow">Workflow</span>
+        <h1 id="workflow-title">No workflow selected</h1>
+      </div>
+      <span id="save-state" role="status"></span>
+      <div class="actions" id="actions" style="display:none;">
+        <button class="btn-save" id="btn-save-local" onclick="saveLocal()"><i data-lucide="save"></i>Save to Snowflake</button>
+        <button class="btn-install" id="btn-install" onclick="install()">Install</button>
+        <details class="action-menu" id="workflow-menu">
+          <summary title="Workflow actions">More</summary>
+          <div class="action-menu-items">
+            <button class="btn-export" id="btn-export-json" onclick="exportJson()">Export JSON</button>
+            <button class="btn-render" id="btn-render-sql" onclick="switchTab('sql'); setMobileView('details'); renderSql()">Render SQL</button>
+            <button class="btn-export" id="btn-export-sql" onclick="exportSql()">Export SQL</button>
+            <button class="btn-delete" id="btn-delete-workflow" onclick="deleteLocal()">Delete from Snowflake</button>
+          </div>
+        </details>
+      </div>
+    </header>
+    <div id="empty-state" class="empty-state">
+      <h2>No workflow selected</h2>
+      <div class="empty-actions">
+        <button class="primary-button" type="button" onclick="readFromSnowflake()">Read from Snowflake</button>
+        <button type="button" onclick="newWorkflow()">+ New workflow</button>
+        <button type="button" onclick="triggerWorkflowImport()">Import JSON</button>
+      </div>
+    </div>
 
-    <div id="editor" style="display:none;">
-      <!-- Top row: graph + properties -->
-      <div class="top-row">
+    <div id="editor" data-mobile-view="graph" style="display:none;">
+      <div class="mobile-view-switch" role="group" aria-label="Workspace view">
+        <button type="button" data-view="graph" aria-pressed="true" onclick="setMobileView('graph')">Graph</button>
+        <button type="button" data-view="details" aria-pressed="false" onclick="setMobileView('details')">Details</button>
+      </div>
+      <section class="canvas-pane" aria-label="Task graph">
+        <div class="canvas-heading">
+          <h2>Task graph</h2>
+          <button type="button" class="add-task-button" onclick="addTask()">+ Add task</button>
+        </div>
         <div id="graph-container">
-          <div id="graph-toolbar">
-            <button type="button" onclick="relayoutGraph()">Relayout</button>
+          <div id="graph-toolbar" role="group" aria-label="Graph controls">
+            <button type="button" onclick="relayoutGraph()" title="Arrange task graph">Arrange</button>
             <button type="button" id="btn-layout-toggle" onclick="toggleLayoutEngine()">Play</button>
             <button type="button" id="btn-release-fixed" onclick="releaseFixedNodes()">Release fixed</button>
-            <button type="button" onclick="resetViewport()">Reset view</button>
+            <button type="button" class="icon-button" onclick="zoomGraphBy(0.8)" title="Zoom in" aria-label="Zoom in"><i data-lucide="plus">+</i></button>
+            <button type="button" class="icon-button" onclick="zoomGraphBy(1.25)" title="Zoom out" aria-label="Zoom out"><i data-lucide="minus">-</i></button>
+            <button type="button" class="icon-button" onclick="resetViewport()" title="Fit graph to view" aria-label="Fit graph to view"><i data-lucide="scan">[]</i></button>
           </div>
+          <div id="graph-empty" hidden>No tasks</div>
           <div id="miniature">
             <svg id="mini-svg" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet" aria-label="Graph navigator"></svg>
           </div>
         </div>
-        <div id="props">
-          <label for="wf-name">Workflow name</label>
-          <input id="wf-name" placeholder="Workflow name" oninput="syncForm()"/>
-          <label for="wf-wh">Warehouse</label>
-          <input id="wf-wh" placeholder="Warehouse" oninput="syncForm()"/>
-          <label for="wf-timeout">Task timeout (ms)</label>
-          <input id="wf-timeout" type="number" placeholder="Timeout (ms)" oninput="syncForm()"/>
-          <label for="wf-max-fail">Max failures</label>
-          <input id="wf-max-fail" type="number" placeholder="Max failures" oninput="syncForm()"/>
-          <label for="wf-config">Shared task config (JSON)</label>
-          <textarea id="wf-config" class="config-area" placeholder="Shared task config JSON (optional)" oninput="syncForm()" rows="2"></textarea>
+        <div class="metrics" id="metrics"></div>
+      </section>
+
+      <aside id="inspector" aria-label="Workflow inspector">
+        <div class="inspector-heading">
+          <h2>Inspector</h2>
+          <button type="button" class="icon-button" id="btn-inspector-expand" onclick="toggleInspectorWidth()" title="Expand inspector" aria-label="Expand inspector" aria-pressed="false"><i data-lucide="panel-right-open">[]</i></button>
         </div>
-      </div>
-
-      <!-- Metrics -->
-      <div class="metrics" id="metrics"></div>
-
-      <!-- Task select buttons -->
-      <div class="task-buttons" id="task-buttons"></div>
-
-      <!-- Tabs -->
-      <div class="tabs">
-        <div class="tab active" onclick="switchTab('task')">Task Properties</div>
-        <div class="tab" onclick="switchTab('steps')">Steps</div>
-        <div class="tab" onclick="switchTab('json')">JSON</div>
-        <div class="tab" onclick="switchTab('sql')">SQL</div>
-      </div>
-      <div class="tab-content active" id="tab-task"></div>
-      <div class="tab-content" id="tab-steps"></div>
-      <div class="tab-content" id="tab-json"><pre id="json-preview"></pre></div>
-      <div class="tab-content" id="tab-sql"><pre id="sql-preview">Load templates/CreateTaskGraph.sql, then click Render SQL.</pre></div>
+        <div class="tabs" role="tablist" aria-label="Inspector views" onkeydown="handleInspectorTabKey(event)">
+          <button type="button" class="tab" id="view-workflow" data-tab="workflow" role="tab" aria-controls="tab-workflow" aria-selected="false" tabindex="-1" onclick="switchTab('workflow')">Workflow</button>
+          <button type="button" class="tab active" id="view-task" data-tab="task" role="tab" aria-controls="tab-task" aria-selected="true" onclick="switchTab('task')">Task</button>
+          <button type="button" class="tab" id="view-steps" data-tab="steps" role="tab" aria-controls="tab-steps" aria-selected="false" tabindex="-1" onclick="switchTab('steps')">Steps</button>
+          <button type="button" class="tab" id="view-json" data-tab="json" role="tab" aria-controls="tab-json" aria-selected="false" tabindex="-1" onclick="switchTab('json')">JSON</button>
+          <button type="button" class="tab" id="view-sql" data-tab="sql" role="tab" aria-controls="tab-sql" aria-selected="false" tabindex="-1" onclick="switchTab('sql')">SQL</button>
+        </div>
+        <div id="task-buttons" class="task-buttons"></div>
+        <div class="tab-content" id="tab-workflow" role="tabpanel" aria-labelledby="view-workflow" tabindex="0">
+          <div id="props">
+            <label for="wf-name">Workflow name</label>
+            <input id="wf-name" placeholder="Workflow name" oninput="syncForm()"/>
+            <label for="wf-wh">Warehouse</label>
+            <input id="wf-wh" placeholder="Warehouse" oninput="syncForm()"/>
+            <label for="wf-timeout">Task timeout (ms)</label>
+            <input id="wf-timeout" type="number" placeholder="Timeout (ms)" oninput="syncForm()"/>
+            <label for="wf-max-fail">Max failures</label>
+            <input id="wf-max-fail" type="number" placeholder="Max failures" oninput="syncForm()"/>
+            <label for="wf-config">Shared task config (JSON)</label>
+            <textarea id="wf-config" class="config-area" placeholder="Optional" oninput="syncForm()" rows="6"></textarea>
+          </div>
+        </div>
+        <div class="tab-content active" id="tab-task" role="tabpanel" aria-labelledby="view-task" tabindex="0"></div>
+        <div class="tab-content" id="tab-steps" role="tabpanel" aria-labelledby="view-steps" tabindex="0"></div>
+        <div class="tab-content" id="tab-json" role="tabpanel" aria-labelledby="view-json" tabindex="0">
+          <div class="document-toolbar"><h3>Workflow JSON</h3><button type="button" onclick="exportJson()">Export JSON</button></div>
+          <pre id="json-preview"></pre>
+        </div>
+        <div class="tab-content" id="tab-sql" role="tabpanel" aria-labelledby="view-sql" tabindex="0">
+          <div class="document-toolbar"><h3>Generated SQL</h3><button type="button" onclick="renderSql()">Render SQL</button><button type="button" onclick="exportSql()">Export SQL</button></div>
+          <pre id="sql-preview">SQL not rendered</pre>
+        </div>
+      </aside>
     </div>
-
-    <!-- Actions -->
-    <div class="actions" id="actions" style="display:none;">
-      <button class="btn-add-task" onclick="addTask()">+ Add task</button>
-      <button class="btn-save" id="btn-save-local" onclick="saveLocal()">Save to Snowflake</button>
-      <button class="btn-install" id="btn-install" onclick="install()">Install</button>
-      <button class="btn-export" id="btn-export-json" onclick="exportJson()">Export JSON</button>
-      <button class="btn-render" id="btn-render-sql" onclick="renderSql()">Render SQL</button>
-      <button class="btn-export" id="btn-export-sql" onclick="exportSql()">Export SQL</button>
-      <button class="btn-delete" id="btn-delete-workflow" onclick="deleteLocal()">Delete from Snowflake</button>
-    </div>
-  </div>
+  </main>
 </div>
 
-<div id="status"></div>
+<div id="status" role="status" aria-live="polite"></div>
 <input id="workflow-import-input" type="file" accept=".json,application/json" onchange="importWorkflowFile(event)" hidden>
 <input id="template-file-input" type="file" accept=".sisula,.sql,text/plain" onchange="importTemplateFile(event)" hidden>
 <div id="install-modal" aria-hidden="true">
@@ -835,6 +193,8 @@ let bundledTemplatePromise = null;
 let lastRenderedSql = '';
 let draggedStepIndex = null;
 let stepDragState = null;
+let activeInspectorTab = 'task';
+let graphTouch = null;
 
 const DEFAULT_VIEWBOX = { x: 0, y: 0, width: 800, height: 450 };
 const WORKFLOW_INDEX_KEY = 'sisula-webapp:workflow-index';
@@ -842,7 +202,7 @@ const TEMPLATE_TEXT_KEY = 'sisula-webapp:template-text';
 const TEMPLATE_NAME_KEY = 'sisula-webapp:template-name';
 const CURRENT_DRAFT_KEY = 'sisula-webapp:current-draft';
 const BUNDLED_TEMPLATE_NAME = 'templates/CreateTaskGraph.sql';
-const SQL_PLACEHOLDER = 'Hosted builds load the bundled templates/CreateTaskGraph.sql automatically. If you opened this page directly as a file, load the template manually, then click Render SQL.';
+const SQL_PLACEHOLDER = 'No template loaded';
 
 function taskId(task, index) {
   return task.name || ('task_' + index);
@@ -1199,7 +559,12 @@ function reseedLayoutPositions() {
 
 function updateGraphToolbar() {
   let toggle = document.getElementById('btn-layout-toggle');
-  if (toggle) toggle.textContent = DrawingEngine.running ? 'Pause' : 'Play';
+  if (toggle) {
+    toggle.textContent = DrawingEngine.running ? 'Pause' : 'Play';
+    toggle.title = DrawingEngine.running ? 'Pause automatic layout' : 'Start automatic layout';
+    toggle.setAttribute('aria-pressed', String(DrawingEngine.running));
+    toggle.disabled = !data || !data.TASKS.length;
+  }
   let release = document.getElementById('btn-release-fixed');
   if (release) release.disabled = !Object.values(nodeMap).some((node) => node.fixed);
 }
@@ -1640,6 +1005,7 @@ async function importWorkflowFile(event) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new Error('Workflow file must contain a JSON object');
     }
+    if (data && dirty && !confirm('Discard unsaved changes and import this workflow?')) return;
     parsed.TASKS = Array.isArray(parsed.TASKS) ? parsed.TASKS : [];
     current = '__new__';
     currentCfId = null;
@@ -1651,7 +1017,7 @@ async function importWorkflowFile(event) {
     renderSidebar();
     renderEditor();
     setDirty(true);
-    showStatus('Workflow imported. Save locally to keep it.', 'success');
+    showStatus('Workflow imported', 'success');
   } catch (e) {
     showStatus(e.message || 'Import failed', 'error');
   } finally {
@@ -1734,16 +1100,30 @@ function renderSidebar() {
     list.innerHTML = '<div class="sidebar-note">No saved workflows yet.</div>';
     return;
   }
-  list.innerHTML = workflows.map((workflow) => {
-    let encodedName = encodeURIComponent(workflow.name);
-    return `<div class="workflow-item${workflow.name===current?' active':''}" onclick="selectWorkflow(decodeURIComponent('${encodedName}'))">${esc(workflow.name)}</div>`;
-  }).join('');
+  let query = getId('workflow-search').value.trim().toLowerCase();
+  let matches = workflows.filter((workflow) => workflow.name.toLowerCase().includes(query));
+  list.replaceChildren();
+  if (!matches.length) {
+    list.innerHTML = '<div class="sidebar-note">No matching workflows</div>';
+    return;
+  }
+  matches.forEach((workflow) => {
+    let button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'workflow-item' + (workflow.name === current ? ' active' : '');
+    button.textContent = workflow.name;
+    button.title = workflow.name;
+    button.setAttribute('aria-current', String(workflow.name === current));
+    button.addEventListener('click', () => selectWorkflow(workflow.name));
+    list.appendChild(button);
+  });
 }
 
 function showEditor() {
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('editor').style.display = '';
   document.getElementById('actions').style.display = '';
+  toggleLibrary(false);
   updateActionButtons();
 }
 
@@ -1751,6 +1131,8 @@ function hideEditor() {
   document.getElementById('empty-state').style.display = '';
   document.getElementById('editor').style.display = 'none';
   document.getElementById('actions').style.display = 'none';
+  DrawingEngine.stop();
+  updateActionButtons();
 }
 
 async function selectWorkflow(name) {
@@ -1764,6 +1146,7 @@ async function selectWorkflow(name) {
 }
 
 function newWorkflow() {
+  if (data && dirty && !confirm('Discard unsaved changes and create a workflow?')) return;
   current = '__new__';
   currentCfId = null;
   data = { WORKFLOW: 'NewWorkflow', WAREHOUSE: 'COMPUTE_WH', TASK_TIMEOUT: 3600000, MAX_FAILURES: 3, TASKS: [] };
@@ -1775,6 +1158,8 @@ function newWorkflow() {
   showEditor();
   renderSidebar();
   renderEditor();
+  switchTab('workflow');
+  setMobileView('details');
 }
 
 function showStatus(msg, type) {
@@ -1832,6 +1217,12 @@ function setDirty(value) {
 
 function updateActionButtons() {
   let hasData = !!data;
+  let title = getId('workflow-title');
+  title.textContent = hasData ? (data.WORKFLOW || 'Untitled workflow') : 'No workflow selected';
+  title.title = title.textContent;
+  let state = getId('save-state');
+  state.textContent = !hasData ? '' : (dirty ? 'Unsaved changes' : (currentCfId ? 'Saved' : 'Draft'));
+  state.classList.toggle('unsaved', hasData && dirty);
   let hasTemplate = !!templateText || canAutoLoadBundledTemplate();
   let saveButton = getId('btn-save-local');
   let installButton = getId('btn-install');
@@ -1881,7 +1272,8 @@ function renderEditor() {
   renderMetrics();
   renderTaskButtons();
   renderGraph();
-  switchTab('task');
+  switchTab(data.TASKS.length ? 'task' : 'workflow');
+  setMobileView('graph');
   updateActionButtons();
 }
 
@@ -1890,23 +1282,27 @@ function renderMetrics() {
   let root = tasks.find(t => t.is_root || t.schedule) || {};
   document.getElementById('metrics').innerHTML = `
     <div class="metric"><div class="value">${tasks.length}</div><div class="label">Tasks</div></div>
-    <div class="metric"><div class="value">${root.name || '-'}</div><div class="label">Root</div></div>
-    <div class="metric"><div class="value">${root.schedule || '-'}</div><div class="label">Schedule</div></div>
+    <div class="metric"><div class="value" title="${esc(root.name || '-')}">${esc(root.name || '-')}</div><div class="label">Root</div></div>
+    <div class="metric"><div class="value" title="${esc(root.schedule || '-')}">${esc(root.schedule || '-')}</div><div class="label">Schedule</div></div>
   `;
 }
 
 function renderTaskButtons() {
   let tasks = data.TASKS || [];
-  document.getElementById('task-buttons').innerHTML = tasks.map((t, i) =>
-    `<button class="task-btn${i===selectedTask?' active':''}" onclick="selectTask(${i})">${t.name || 'task_'+i}</button>`
-  ).join('');
+  document.getElementById('task-buttons').innerHTML = `
+    <label for="task-select">Selected task</label>
+    <select id="task-select" onchange="selectTask(Number(this.value))" ${tasks.length ? '' : 'disabled'}>
+      ${tasks.length ? tasks.map((task, index) => `<option value="${index}" ${index === selectedTask ? 'selected' : ''}>${esc(task.name || 'task_' + index)}</option>`).join('') : '<option>No tasks</option>'}
+    </select>`;
 }
 
 function selectTask(idx) {
+  if (!Number.isInteger(idx) || !data || !data.TASKS[idx]) return;
   selectedTask = idx;
   renderTaskButtons();
   renderGraph();
-  switchTab('task');
+  switchTab(activeInspectorTab === 'steps' ? 'steps' : 'task');
+  setMobileView('details');
   persistCurrentDraft();
 }
 
@@ -1914,6 +1310,8 @@ function selectTask(idx) {
 function renderGraph() {
   let tasks = data.TASKS || [];
   let container = document.getElementById('graph-container');
+  getId('graph-empty').hidden = tasks.length > 0;
+  getId('miniature').hidden = tasks.length === 0;
   DrawingEngine.stop();
   svgEl = document.getElementById('graph-svg');
   if (!svgEl) {
@@ -1926,6 +1324,18 @@ function renderGraph() {
     container.appendChild(svgEl);
     svgEl.addEventListener('mousedown', beginPanning);
     svgEl.addEventListener('wheel', zoomGraph, { passive: false });
+    svgEl.addEventListener('pointerdown', beginGraphTouch);
+    svgEl.addEventListener('pointermove', moveGraphTouch);
+    svgEl.addEventListener('pointerup', endGraphTouch);
+    svgEl.addEventListener('pointercancel', () => { graphTouch = null; });
+    svgEl.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      let index = event.target.getAttribute('data-task-index');
+      if (index === null) return;
+      event.preventDefault();
+      selectTask(Number(index));
+      getId('view-' + activeInspectorTab).focus();
+    });
   }
   ensureMiniSvg();
   applyStoredViewport();
@@ -2011,6 +1421,9 @@ function drawGraph() {
       class: 'node-circle' + (node.isRoot?' root-node':'') + (isSel?' node-selected':''),
       cx: node.xPosition, cy: node.yPosition, r: r,
       'data-task-index': i,
+      role: 'button', tabindex: 0,
+      'aria-label': t.name || ('Task ' + (i + 1)),
+      'aria-pressed': String(isSel),
       fill: node.isRoot ? '#1a5c1a' : '#1a3a5c',
       stroke: isSel ? '#ff6b6b' : (node.isRoot ? '#ffd700' : '#4a9eff'),
       'stroke-width': isSel ? 4 : (node.isRoot ? 2.5 : 1.5)
@@ -2073,8 +1486,9 @@ function beginPanning(e) {
   if (e.button !== 0 || e.target.classList.contains('node-circle')) return;
   panState.active = true;
   let viewBox = currentViewBox();
-  panState.scaleX = viewBox.width / Math.max(svgEl.clientWidth, 1);
-  panState.scaleY = viewBox.height / Math.max(svgEl.clientHeight, 1);
+  let matrix = svgEl.getScreenCTM();
+  panState.scaleX = matrix ? 1 / matrix.a : viewBox.width / Math.max(svgEl.clientWidth, 1);
+  panState.scaleY = matrix ? 1 / matrix.d : viewBox.height / Math.max(svgEl.clientHeight, 1);
   panState.lastX = e.clientX;
   panState.lastY = e.clientY;
   svgEl.style.cursor = 'move';
@@ -2150,7 +1564,44 @@ function releaseFixedNodes() {
 }
 
 function resetViewport() {
-  setViewBox(DEFAULT_VIEWBOX.x, DEFAULT_VIEWBOX.y, DEFAULT_VIEWBOX.width, DEFAULT_VIEWBOX.height);
+  let bounds = getGraphBounds();
+  setViewBox(bounds.x, bounds.y, bounds.width, bounds.height);
+}
+
+function zoomGraphBy(factor) {
+  let viewBox = currentViewBox();
+  let width = Math.max(100, Math.min(10000, viewBox.width * factor));
+  let height = viewBox.height * width / viewBox.width;
+  setViewBox(viewBox.x + (viewBox.width - width) / 2, viewBox.y + (viewBox.height - height) / 2, width, height);
+}
+
+function beginGraphTouch(event) {
+  if (event.pointerType === 'mouse') return;
+  if (graphTouch) return;
+  graphTouch = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+    lastX: event.clientX, lastY: event.clientY, moved: false,
+    index: event.target.getAttribute('data-task-index') };
+  svgEl.setPointerCapture(event.pointerId);
+  event.preventDefault();
+}
+
+function moveGraphTouch(event) {
+  if (!graphTouch || graphTouch.pointerId !== event.pointerId) return;
+  if (Math.hypot(event.clientX - graphTouch.startX, event.clientY - graphTouch.startY) > 5) graphTouch.moved = true;
+  if (!graphTouch.moved) return;
+  let previous = screenToSVG(graphTouch.lastX, graphTouch.lastY);
+  let next = screenToSVG(event.clientX, event.clientY);
+  let viewBox = currentViewBox();
+  setViewBox(viewBox.x + previous.x - next.x, viewBox.y + previous.y - next.y, viewBox.width, viewBox.height);
+  graphTouch.lastX = event.clientX;
+  graphTouch.lastY = event.clientY;
+}
+
+function endGraphTouch(event) {
+  if (!graphTouch || graphTouch.pointerId !== event.pointerId) return;
+  let touch = graphTouch;
+  graphTouch = null;
+  if (!touch.moved && touch.index !== null) selectTask(Number(touch.index));
 }
 
 document.addEventListener('mousedown', function(e) {
@@ -2266,18 +1717,65 @@ document.addEventListener('mouseup', function(e) {
 
 // --- Forms ---
 function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.textContent.toLowerCase().includes(name)));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id.includes(name)));
+  if (!['workflow', 'task', 'steps', 'json', 'sql'].includes(name)) return;
+  activeInspectorTab = name;
+  document.querySelectorAll('.tab').forEach((tab) => {
+    let active = tab.dataset.tab === name;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll('.tab-content').forEach((panel) => panel.classList.toggle('active', panel.id === 'tab-' + name));
+  getId('task-buttons').hidden = name !== 'task' && name !== 'steps';
   if (name === 'task') renderTaskForm();
   if (name === 'steps') renderStepsForm();
   if (name === 'json') renderJsonPreview();
   if (name === 'sql') renderSqlTab();
 }
 
+function setMobileView(view) {
+  getId('editor').dataset.mobileView = view;
+  document.querySelectorAll('[data-view]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.view === view));
+  });
+}
+
+function toggleLibrary(open) {
+  let wasExpanded = getId('app').classList.contains('library-open');
+  let expanded = typeof open === 'boolean' ? open : !getId('app').classList.contains('library-open');
+  getId('app').classList.toggle('library-open', expanded);
+  getId('btn-library').setAttribute('aria-expanded', String(expanded));
+  getId('library-backdrop').hidden = !expanded;
+  if (expanded) getId('workflow-search').focus();
+  else if (wasExpanded && window.matchMedia('(max-width: 1000px)').matches) getId('btn-library').focus();
+}
+
+function toggleInspectorWidth() {
+  let expanded = getId('editor').classList.toggle('inspector-wide');
+  let button = getId('btn-inspector-expand');
+  button.setAttribute('aria-pressed', String(expanded));
+  button.title = expanded ? 'Restore inspector width' : 'Expand inspector';
+  button.setAttribute('aria-label', button.title);
+}
+
+function handleInspectorTabKey(event) {
+  let tabs = Array.from(document.querySelectorAll('[data-tab]'));
+  let index = tabs.indexOf(event.target);
+  if (index < 0) return;
+  if (event.key === 'ArrowRight') index = (index + 1) % tabs.length;
+  else if (event.key === 'ArrowLeft') index = (index + tabs.length - 1) % tabs.length;
+  else if (event.key === 'Home') index = 0;
+  else if (event.key === 'End') index = tabs.length - 1;
+  else return;
+  event.preventDefault();
+  switchTab(tabs[index].dataset.tab);
+  tabs[index].focus();
+}
+
 function renderTaskForm() {
   let tasks = data.TASKS || [];
   if (!tasks.length) {
-    document.getElementById('tab-task').innerHTML = '<p style="color:#888;padding:1rem;">No tasks. Click "+ Add task".</p>';
+    document.getElementById('tab-task').innerHTML = '<div class="panel-empty"><p>No tasks</p><button type="button" onclick="addTask()">+ Add task</button></div>';
     return;
   }
   let t = tasks[selectedTask] || tasks[0];
@@ -2298,14 +1796,22 @@ function renderTaskForm() {
         <div id="f-after"></div>
       </div>
     </div>
-    <button onclick="removeTask()" style="margin-top:0.5rem;color:#cf222e;border:1px solid #cf222e;background:none;padding:0.3rem 0.8rem;border-radius:6px;cursor:pointer;">Remove this task</button>
+    <button type="button" class="remove-task-button" onclick="removeTask()">Remove task</button>
   `;
   // Render multi-select for after
   let allNames = tasks.map((tk, i) => i !== selectedTask ? tk.name : null).filter(Boolean);
   let after = (t.after || []).map(a => a.name);
   document.getElementById('f-after').innerHTML = allNames.map(n =>
-    `<label class="check-option"><input type="checkbox" value="${n}" ${after.includes(n)?'checked':''} onchange="syncTask()"><span>${n}</span></label>`
+    `<label class="check-option"><input type="checkbox" value="${esc(n)}" ${after.includes(n)?'checked':''} onchange="syncTask()"><span>${esc(n)}</span></label>`
   ).join('');
+  associateFormLabels(getId('tab-task'));
+}
+
+function associateFormLabels(panel) {
+  panel.querySelectorAll('.form-group > label:not([for])').forEach((label) => {
+    let field = label.parentElement.querySelector('input[id], select[id], textarea[id]');
+    if (field) label.htmlFor = field.id;
+  });
 }
 
 function syncTask() {
@@ -2335,6 +1841,7 @@ function syncTask() {
   }
   setDirty(true);
   renderTaskButtons();
+  renderMetrics();
   renderGraph();
 }
 
@@ -2353,7 +1860,7 @@ const STEP_BADGES = { proc: 'badge-proc', sql: 'badge-sql', lineage: 'badge-line
 
 function renderStepsForm() {
   let tasks = data.TASKS || [];
-  if (!tasks.length) { document.getElementById('tab-steps').innerHTML = '<p style="color:#888;padding:1rem;">No tasks to show steps for.</p>'; return; }
+  if (!tasks.length) { document.getElementById('tab-steps').innerHTML = '<div class="panel-empty"><p>No tasks</p><button type="button" onclick="addTask()">+ Add task</button></div>'; return; }
   let t = tasks[selectedTask] || tasks[0];
   let steps = t.steps || [];
   document.getElementById('tab-steps').innerHTML = `
@@ -2363,6 +1870,7 @@ function renderStepsForm() {
       ${steps.length ? '<button class="btn-step-remove" onclick="removeLastStep()">Remove last</button>' : ''}
     </div>
   `;
+  associateFormLabels(getId('tab-steps'));
 }
 
 function stepTitle(step, i) {
@@ -2575,6 +2083,8 @@ function addTask() {
   setDirty(true);
   LayoutEngine.equilibrium = false;
   renderEditor();
+  setMobileView('details');
+  getId('f-name').focus();
 }
 
 function removeTask() {
@@ -2585,6 +2095,7 @@ function removeTask() {
   selectedTask = Math.max(0, Math.min(selectedTask, data.TASKS.length - 1));
   setDirty(true);
   renderEditor();
+  setMobileView('details');
 }
 
 function renderJsonPreview() {
@@ -2595,7 +2106,7 @@ function renderSqlTab() {
   let preview = getId('sql-preview');
   if (!preview) return;
   if (!data) {
-    preview.textContent = 'Open or create a workflow to preview generated SQL.';
+    preview.textContent = 'No workflow selected';
     return;
   }
   if (!templateText) {
@@ -2603,7 +2114,7 @@ function renderSqlTab() {
     return;
   }
   if (!lastRenderedSql) {
-    preview.textContent = dirty ? 'Workflow changed. Click Render SQL to update the preview.' : 'Click Render SQL to preview the generated DDL.';
+    preview.textContent = dirty ? 'SQL preview out of date' : 'SQL not rendered';
     return;
   }
   preview.textContent = lastRenderedSql;
@@ -2631,6 +2142,29 @@ function deleteLocal() { deleteWorkflow(); }
 // --- Helpers ---
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(new RegExp('\"','g'),'&quot;'); }
 function getId(id) { return document.getElementById(id); }
+
+document.addEventListener('click', (event) => {
+  let menu = getId('workflow-menu');
+  if (!menu.contains(event.target) || event.target.closest('.action-menu-items button')) menu.open = false;
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    if (getId('install-modal').classList.contains('show')) { closeInstallModal(); return; }
+    if (getId('workflow-menu').open) {
+      getId('workflow-menu').open = false;
+      getId('workflow-menu').querySelector('summary').focus();
+    }
+    toggleLibrary(false);
+  }
+  if (event.key === 'Tab' && getId('app').classList.contains('library-open') && window.matchMedia('(max-width: 1000px)').matches) {
+    let controls = Array.from(getId('sidebar').querySelectorAll('button:not(:disabled), input'));
+    let first = controls[0];
+    let last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
 
 // Start app
 console.log('Calling loadWorkflows...');

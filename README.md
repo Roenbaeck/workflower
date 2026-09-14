@@ -89,6 +89,7 @@ These belong to the SQL Server CLR reference implementation in `sisula-mssql/` r
 ```bash
 ./test_all.sh <connection_name>
 node test_local.js
+node --test test_workflow_read.js test_editor_ui.js
 ```
 
 ### 5. Start the workflow editor
@@ -96,6 +97,12 @@ node test_local.js
 ```bash
 ./webapp/run.sh <connection_name>
 ```
+
+The editor uses a full-height task graph beside an independently scrolling inspector. Select a graph node or use the task picker to edit its properties and steps. Workflow settings, JSON, and SQL each have their own inspector tab; the inspector can be expanded for longer definitions.
+
+Save and Install remain in the top bar. Export and delete actions are in More. The workflow library supports filtering, JSON import, and Read from Snowflake without a local configuration file. On smaller screens the library opens as a drawer, and Graph / Details switches between the canvas and inspector.
+
+The editor regression tests above require Node.js 18 or later and use mocked state, not a Snowflake connection. They do not replace browser checks for layout, touch interactions, or rendering. Fonts and Lucide icons load from CDNs, with local font and text fallbacks when unavailable.
 
 ## Requirements
 
