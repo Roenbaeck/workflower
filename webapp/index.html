@@ -709,6 +709,7 @@ button[onclick="removeTask()"] {
     </div>
     <button class="btn-new" onclick="newWorkflow()">+ New workflow</button>
     <div class="sidebar-tools">
+      <button class="btn-utility" id="btn-read-snowflake" type="button" onclick="readFromSnowflake()" title="Refresh saved workflows and load a definition from Snowflake">Read from Snowflake</button>
       <button class="btn-utility" type="button" onclick="triggerWorkflowImport()">Import workflow JSON</button>
       <button class="btn-utility" type="button" onclick="triggerTemplateLoad()">Load template file</button>
       <div class="sidebar-note" id="template-status">Template: not loaded</div>
@@ -1459,10 +1460,14 @@ async function loadWorkflows(restoreDraft) {
 
 async function loadWorkflow(name) {
   let workflow = await api('/api/workflows/' + encodeURIComponent(name));
+  let parsed = JSON.parse(workflow.content);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Stored workflow JSON must be an object');
+  }
+  parsed.TASKS = Array.isArray(parsed.TASKS) ? parsed.TASKS : [];
   current = workflow.name;
   currentCfId = workflow.cf_id;
-  data = JSON.parse(workflow.content);
-  data.TASKS = Array.isArray(data.TASKS) ? data.TASKS : [];
+  data = parsed;
   loadLayoutState(current, extractLegacyLayout(data));
   selectedTask = 0;
   dirty = false;
@@ -1470,6 +1475,27 @@ async function loadWorkflow(name) {
   needsInitialLayout = true;
   renderEditor();
   persistCurrentDraft();
+}
+
+async function readFromSnowflake() {
+  let button = getId('btn-read-snowflake');
+  if (button.disabled) return;
+  if (dirty && !confirm('Discard unsaved changes and read from Snowflake?')) return;
+  button.disabled = true;
+  button.textContent = 'Reading...';
+  try {
+    let savedWorkflows = await api('/api/workflows');
+    let workflow = savedWorkflows.find((saved) => saved.name === current) || savedWorkflows[0];
+    if (workflow) await loadWorkflow(workflow.name);
+    workflows = savedWorkflows;
+    renderSidebar();
+    showStatus(workflow ? 'Read from Snowflake' : 'No saved workflows in Snowflake', 'success');
+  } catch (e) {
+    showStatus(e.message || 'Reading from Snowflake failed', 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Read from Snowflake';
+  }
 }
 
 async function saveWorkflow() {
@@ -1728,8 +1754,13 @@ function hideEditor() {
 }
 
 async function selectWorkflow(name) {
-  await loadWorkflow(name);
-  renderSidebar();
+  if (dirty && !confirm('Discard unsaved changes and load "' + name + '"?')) return;
+  try {
+    await loadWorkflow(name);
+    renderSidebar();
+  } catch (e) {
+    showStatus(e.message || 'Reading from Snowflake failed', 'error');
+  }
 }
 
 function newWorkflow() {
