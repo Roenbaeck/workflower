@@ -1,9 +1,23 @@
 -- ============================================================
--- Task graph: $WORKFLOW$ $SOURCE$ $SYSTEM$
+-- Workflower task graph
 -- Generated from sisula-snowflake template
 -- ============================================================
 
+-- Suspend existing imported roots before modifying their graphs.
 $/ foreach task in TASKS
+$/ if task.native
+$/ if task.is_root == true
+ALTER TASK IF EXISTS $task.name$ SUSPEND;
+$/ endif
+$/ endif
+$/ endfor
+
+$/ foreach task in TASKS
+$/ if task.native
+$task.native.header$
+$task.native.body$
+;
+$/ else
 
 ----------------------------------------------------------------
 -- $task.name$
@@ -83,6 +97,7 @@ $/ if task.is_root == true
 $/ endif
 AS
     CALL sp_$task.name$();
+$/ endif
 
 $/ endfor
 
@@ -93,7 +108,7 @@ $/ if CF_ID
 
 -- Link tasks to existing configuration
 $/ foreach task in TASKS
--- $task.name$ linked to configuration $CF_ID$
+-- Task linked to configuration $CF_ID$
 $/ endfor
 $/ else
 
@@ -105,8 +120,21 @@ $/ endif
 -- ============================================================
 $/ foreach task in TASKS
 $/ if task.state == "running"
+$/ if task.native and task.is_root == true
+$/ else
 ALTER TASK $task.name$ RESUME;
+$/ endif
+$/ else
+$/ if task.native
 $/ else
 ALTER TASK $task.name$ SUSPEND;
+$/ endif
+$/ endif
+$/ endfor
+
+-- Start imported roots only after their children have been enabled.
+$/ foreach task in TASKS
+$/ if task.native and task.is_root == true and task.state == "running"
+ALTER TASK $task.name$ RESUME;
 $/ endif
 $/ endfor

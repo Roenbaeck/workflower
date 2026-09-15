@@ -11,9 +11,9 @@ from metadata-backed template storage into `CREATE TASK` DDL. Store it via `meta
 | `WORKFLOW` | string | yes | Unique workflow name, used as configuration key |
 | `SYSTEM` | string | no | System/project identifier |
 | `SOURCE` | string | no | Source system name |
-| `WAREHOUSE` | string | yes | Snowflake warehouse for all tasks |
-| `TASK_TIMEOUT` | number | yes | Milliseconds before task timeout |
-| `MAX_FAILURES` | number | yes | Consecutive failures before auto-suspend (root only) |
+| `WAREHOUSE` | string | authored tasks | Snowflake warehouse for all tasks |
+| `TASK_TIMEOUT` | number | authored tasks | Milliseconds before task timeout |
+| `MAX_FAILURES` | number | authored tasks | Consecutive failures before auto-suspend (root only) |
 | `CONFIG` | string | no | JSON string for graph-level config, set on root task |
 | `CF_ID` | number | no | Existing configuration ID for provenance linking |
 | `TASKS` | array | yes | Ordered list of task definitions |
@@ -189,3 +189,36 @@ Minimal two-task graph with a fan-out:
 This renders a root task `tsk_extract` on a daily schedule, and two child tasks
 `tsk_load_a` and `tsk_load_b` that run in parallel after extraction completes.
 All tasks start suspended.
+
+
+## Imported native tasks
+
+`read.sh` produces the same `WORKFLOW` / `TASKS` structure with an additional `IMPORT` provenance object and a `native` object on each task. Native tasks do not use the workflow-level warehouse, timeout, config, or logging steps. Their own DDL is authoritative:
+
+```json
+{
+  "WORKFLOW": "ImportedGraph",
+  "TASKS": [{
+    "name": "\"DB\".\"SC\".\"ROOT\"",
+    "is_root": true,
+    "description": "Imported task",
+    "schedule": null,
+    "after": null,
+    "state": "suspended",
+    "steps": [],
+    "native": {
+      "header": "CREATE OR REPLACE TASK \"DB\".\"SC\".\"ROOT\" WAREHOUSE=COMPUTE_WH AS",
+      "body": "SELECT 1",
+      "source_state": "started",
+      "finalizes": null,
+      "metadata": {}
+    }
+  }]
+}
+```
+
+`native.header` contains the original `GET_DDL` prefix through the task-body `AS` keyword. `native.body` contains the SQL body, without its final statement terminator; the template appends a terminator. SQL scripting blocks, procedure calls and conditions are preserved without attempting to infer lineage or extract stored-procedure internals. The editor exposes the body for editing and displays the header read-only.
+
+Task names and predecessor names are fully qualified SQL identifiers, including quotes. The display fields `description`, `schedule` and `after` are a metadata snapshot, not overrides of the header. For a finalizer, `native.finalizes` is its root and `after` contains a display edge to that root; the actual header retains `FINALIZE`, not `AFTER`. Tasks are emitted in creation order with finalizers last. Native roots are resumed after their children when explicitly enabled.
+
+Imports install suspended by default even when `native.source_state` is `started`. Native task recreation does not restore external dependencies, ownership or grants. Import reads are not a transactional schema snapshot; avoid changing task graphs while exporting.

@@ -6,3 +6,4 @@ snowflake_cli_setup.png
 /streamlit/output
 /webapp/.venv/
 /webapp/__pycache__/
+/__pycache__/

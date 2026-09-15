@@ -28,6 +28,14 @@
       <button class="btn-utility" id="btn-read-snowflake" type="button" onclick="readFromSnowflake()" title="Refresh saved workflows and load a definition from Snowflake">Read from Snowflake</button>
       <button class="btn-utility" type="button" onclick="triggerWorkflowImport()">Import workflow JSON</button>
     </div>
+    <details id="connection-panel" class="connection-panel">
+      <summary>Snowflake connection</summary>
+      <p id="connection-status" role="status">Connect before reading or saving workflows.</p>
+      <label for="mfa-passcode">One-time code (if required)</label>
+      <input id="mfa-passcode" type="password" autocomplete="one-time-code" maxlength="256" aria-describedby="mfa-help"/>
+      <p id="mfa-help">Leave blank for browser sign-in or push approval.</p>
+      <button id="btn-connect-snowflake" type="button" onclick="reconnectSnowflake()">Connect / reconnect</button>
+    </details>
     <div class="library-heading">Saved workflows</div>
     <label class="sr-only" for="workflow-search">Find a workflow</label>
     <input id="workflow-search" type="search" placeholder="Find a workflow" oninput="renderSidebar()"/>
@@ -115,6 +123,7 @@
           <div id="props">
             <label for="wf-name">Workflow name</label>
             <input id="wf-name" placeholder="Workflow name" oninput="syncForm()"/>
+            <p class="sidebar-note" id="native-settings-note" hidden>Imported tasks retain their own settings in their DDL headers; shared settings below apply only to Workflower-authored tasks.</p>
             <label for="wf-wh">Warehouse</label>
             <input id="wf-wh" placeholder="Warehouse" oninput="syncForm()"/>
             <label for="wf-timeout">Task timeout (ms)</label>
@@ -773,6 +782,38 @@ LayoutEngine.layout = LayoutEngine.simpleLayout;
 DrawingEngine.init();
 
 // --- API + storage helpers ---
+function requireSnowflakeConnection(message) {
+  let panel = getId('connection-panel');
+  let status = getId('connection-status');
+  if (panel) panel.open = true;
+  if (status) status.textContent = message;
+}
+
+async function reconnectSnowflake() {
+  let button = getId('btn-connect-snowflake');
+  let input = getId('mfa-passcode');
+  if (button.disabled || installing) return;
+  button.disabled = true;
+  let passcode = input.value.trim();
+  input.value = '';
+  requireSnowflakeConnection('Connecting… Complete browser sign-in or approve the MFA request.');
+  try {
+    await api('/api/connection/reconnect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passcode: passcode || null }),
+    });
+    requireSnowflakeConnection('Connected. You can read, save, or install workflows.');
+    showStatus('Connected to Snowflake', 'success');
+    // Refresh only the library; never replay a failed action or replace the draft.
+    await loadWorkflows(false, true);
+  } catch (e) {
+    requireSnowflakeConnection(e.message || 'Connection failed. Try connecting again.');
+  } finally {
+    passcode = '';
+    button.disabled = false;
+  }
+}
+
 async function api(url, opts) {
   let response;
   try {
@@ -783,13 +824,14 @@ async function api(url, opts) {
   }
 
   if (!response.ok) {
-    let message = 'Request failed';
+    let text = await response.text();
+    let message = text || ('HTTP ' + response.status);
     try {
-      let payload = await response.json();
+      let payload = JSON.parse(text);
+      if (payload && payload.code === 'connection_required') requireSnowflakeConnection(payload.detail);
       message = payload && payload.detail ? payload.detail : JSON.stringify(payload);
     } catch (jsonError) {
-      let text = await response.text();
-      message = text || ('HTTP ' + response.status);
+      // Keep the text response; the response body can only be consumed once.
     }
     let error = new Error(message);
     showStatus(message, 'error');
@@ -803,10 +845,13 @@ function readStoredWorkflow(name) {
   return workflows.find((workflow) => workflow.name === name) || null;
 }
 
-async function loadWorkflows(restoreDraft) {
+async function loadWorkflows(restoreDraft, preserveSelection = false) {
+  // Restore local work even when the server needs authentication first.
+  let restored = restoreDraft && restoreCurrentDraft();
   workflows = await api('/api/workflows');
   renderSidebar();
-  if (restoreDraft && restoreCurrentDraft()) {
+  if (restored || preserveSelection) {
+    updateActionButtons();
     return;
   }
   let hasCurrent = workflows.some((workflow) => workflow.name === current);
@@ -907,6 +952,7 @@ async function installWorkflow() {
   installing = true;
   updateActionButtons();
   let hadError = false;
+  let completed = false;
 
   try {
     let response = await window.fetch('/api/workflows/' + encodeURIComponent(currentCfId) + '/install/stream', {
@@ -933,6 +979,8 @@ async function installWorkflow() {
         if (!line) return;
         appendInstallLog(line);
         if (line.indexOf('[ERROR]') >= 0) hadError = true;
+        if (line.indexOf('[CONNECTION_REQUIRED]') >= 0) requireSnowflakeConnection('Reconnect to Snowflake, then check the installation before retrying.');
+        if (line.indexOf('[DONE]') >= 0) completed = true;
       });
       if (result.done) break;
     }
@@ -940,7 +988,10 @@ async function installWorkflow() {
     if (buffer) {
       appendInstallLog(buffer);
       if (buffer.indexOf('[ERROR]') >= 0) hadError = true;
+      if (buffer.indexOf('[CONNECTION_REQUIRED]') >= 0) requireSnowflakeConnection('Reconnect to Snowflake, then check the installation before retrying.');
+      if (buffer.indexOf('[DONE]') >= 0) completed = true;
     }
+    if (!hadError && !completed) throw new Error('Install stream ended before completion; check Snowflake before retrying');
     if (hadError) {
       setInstallModalState('error');
       showStatus('Install failed', 'error');
@@ -1059,6 +1110,9 @@ async function renderSqlPreview() {
     let bindings = serializeWorkflow();
     bindings.WORKFLOW = bindings.WORKFLOW || current || 'Workflow';
     lastRenderedSql = sisulate(templateText, JSON.stringify(bindings));
+    if ((bindings.TASKS || []).some(t => t.native && (!t.native.header || !lastRenderedSql.includes(t.native.header)))) {
+      throw new Error('This template does not support imported native tasks. Load the updated CreateTaskGraph template.');
+    }
     switchTab('sql');
     renderSqlTab();
     showStatus('SQL rendered', 'success');
@@ -1269,6 +1323,8 @@ function renderEditor() {
   document.getElementById('wf-max-fail').value = data.MAX_FAILURES || 3;
   document.getElementById('wf-config').value = data.CONFIG || '';
 
+  let nativeNote = getId("native-settings-note");
+  if (nativeNote) nativeNote.hidden = !data.TASKS.some(t => t.native);
   renderMetrics();
   renderTaskButtons();
   renderGraph();
@@ -1779,6 +1835,15 @@ function renderTaskForm() {
     return;
   }
   let t = tasks[selectedTask] || tasks[0];
+  if (t.native) {
+    document.getElementById('tab-task').innerHTML = `
+      <p>Imported Snowflake task. Its settings are preserved in the original DDL header. Edit the SQL body in Steps.</p>
+      <div class="form-group"><label for="native-name">Task name</label><input id="native-name" readonly value="${esc(t.name)}"/></div>
+      <div class="form-group"><label for="native-header">Preserved task settings</label><textarea id="native-header" rows="12" readonly>${esc(t.native.header)}</textarea></div>
+      <p>Source state: ${esc(t.native.source_state || 'unknown')}. ${t.native.finalizes ? 'Finalizes ' + esc(t.native.finalizes) + ' (the graph edge identifies its root, not an AFTER dependency).' : ''}</p>
+      <div class="form-group"><label for="native-state">State after installation</label><select id="native-state" onchange="data.TASKS[selectedTask].state=this.value;setDirty(true)"><option value="suspended" ${t.state !== 'running' ? 'selected' : ''}>suspended</option><option value="running" ${t.state === 'running' ? 'selected' : ''}>running</option></select></div>`;
+    return;
+  }
   document.getElementById('tab-task').innerHTML = `
     <div class="form-grid">
       <div class="form-group"><label>Task name</label><input id="f-name" value="${esc(t.name||'')}" oninput="syncTask()"/></div>
@@ -1862,6 +1927,10 @@ function renderStepsForm() {
   let tasks = data.TASKS || [];
   if (!tasks.length) { document.getElementById('tab-steps').innerHTML = '<div class="panel-empty"><p>No tasks</p><button type="button" onclick="addTask()">+ Add task</button></div>'; return; }
   let t = tasks[selectedTask] || tasks[0];
+  if (t.native) {
+    document.getElementById('tab-steps').innerHTML = `<p>Native task SQL runs directly, without a Workflower logging wrapper. Referenced procedures and other objects must already exist.</p><div class="form-group"><label for="native-body">Task SQL body</label><textarea id="native-body" rows="20" spellcheck="false" oninput="data.TASKS[selectedTask].native.body=this.value;setDirty(true)">${esc(t.native.body)}</textarea></div>`;
+    return;
+  }
   let steps = t.steps || [];
   document.getElementById('tab-steps').innerHTML = `
     <div id="steps-container">${steps.map((s, i) => stepHTML(s, i)).join('')}</div>

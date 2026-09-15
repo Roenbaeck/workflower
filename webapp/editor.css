@@ -256,3 +256,8 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.connection-panel { margin: 12px 0; padding: 10px; border: 1px solid var(--line-soft); border-radius: 5px; }
+.connection-panel summary { font-weight: 500; }
+.connection-panel p { margin: 8px 0; color: var(--text-muted); font-size: 12px; }
+.connection-panel label { display: block; margin-top: 8px; font-size: 12px; }
+.connection-panel input { width: 100%; margin: 4px 0; padding: 6px; border: 1px solid var(--line-strong); border-radius: 4px; }
