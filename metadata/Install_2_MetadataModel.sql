@@ -61,6 +61,19 @@ CREATE TABLE IF NOT EXISTS metadata.GRG_GraphRunGroupId (
         GRG_GraphRunGroupId
     )
 ) CLUSTER BY (GRG_ID);
+-- Knot table ---------------------------------------------------------------------------------------------------------
+-- ILS_InstallationStatus table
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.ILS_InstallationStatus (
+    ILS_ID tinyint not null,
+    ILS_InstallationStatus varchar(42) not null,
+    constraint pkILS_InstallationStatus primary key (
+        ILS_ID
+    ),
+    constraint uqILS_InstallationStatus unique (
+        ILS_InstallationStatus
+    )
+) CLUSTER BY (ILS_ID);
 -- ANCHORS ------------------------------------------------------------------------------------------------------------
 --
 -- Anchors are used to store the identities of entities.
@@ -116,6 +129,16 @@ CREATE TABLE IF NOT EXISTS metadata.OP_Operations (
         OP_ID
     )
 ) CLUSTER BY (OP_ID);
+-- Anchor table -------------------------------------------------------------------------------------------------------
+-- IL_Installation table (with 5 attributes)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS metadata.IL_Installation_ID_SEQ START 1 INCREMENT 1;
+CREATE TABLE IF NOT EXISTS metadata.IL_Installation (
+    IL_ID int default metadata.IL_Installation_ID_SEQ.nextval not null, 
+    constraint pkIL_Installation primary key (
+        IL_ID
+    )
+) CLUSTER BY (IL_ID);
 -- NEXUSES ------------------------------------------------------------------------------------------------------------
 --
 -- Nexuses are used to store identities for event-like entities.
@@ -336,6 +359,75 @@ CREATE TABLE IF NOT EXISTS metadata.OP_MRG_Operations_RowsMerged (
         OP_MRG_ChangedAt
     )
 ) CLUSTER BY (OP_MRG_OP_ID, OP_MRG_ChangedAt);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- IL_RID_Installation_RunId table (on IL_Installation)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.IL_RID_Installation_RunId (
+    IL_RID_IL_ID int not null,
+    IL_RID_Installation_RunId varchar(36) not null,
+    constraint fkIL_RID_Installation_RunId foreign key (
+        IL_RID_IL_ID
+    ) references metadata.IL_Installation(IL_ID),
+    constraint pkIL_RID_Installation_RunId primary key (
+        IL_RID_IL_ID
+    )
+) CLUSTER BY (IL_RID_IL_ID);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- IL_DDL_Installation_RenderedSql table (on IL_Installation)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.IL_DDL_Installation_RenderedSql (
+    IL_DDL_IL_ID int not null,
+    IL_DDL_Installation_RenderedSql varchar(16777216) not null,
+    IL_DDL_Checksum numeric(19,0) default hash(IL_DDL_Installation_RenderedSql),
+    constraint fkIL_DDL_Installation_RenderedSql foreign key (
+        IL_DDL_IL_ID
+    ) references metadata.IL_Installation(IL_ID),
+    constraint pkIL_DDL_Installation_RenderedSql primary key (
+        IL_DDL_IL_ID
+    )
+) CLUSTER BY (IL_DDL_IL_ID);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- IL_RAT_Installation_RenderedAt table (on IL_Installation)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.IL_RAT_Installation_RenderedAt (
+    IL_RAT_IL_ID int not null,
+    IL_RAT_Installation_RenderedAt timestamp_tz not null,
+    constraint fkIL_RAT_Installation_RenderedAt foreign key (
+        IL_RAT_IL_ID
+    ) references metadata.IL_Installation(IL_ID),
+    constraint pkIL_RAT_Installation_RenderedAt primary key (
+        IL_RAT_IL_ID
+    )
+) CLUSTER BY (IL_RAT_IL_ID);
+-- Knotted static attribute table -------------------------------------------------------------------------------------
+-- IL_STA_Installation_Status table (on IL_Installation)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.IL_STA_Installation_Status (
+    IL_STA_IL_ID int not null,
+    IL_STA_ILS_ID tinyint not null,
+    constraint fk_A_IL_STA_Installation_Status foreign key (
+        IL_STA_IL_ID
+    ) references metadata.IL_Installation(IL_ID),
+    constraint fk_K_IL_STA_Installation_Status foreign key (
+        IL_STA_ILS_ID
+    ) references metadata.ILS_InstallationStatus(ILS_ID),
+    constraint pkIL_STA_Installation_Status primary key (
+        IL_STA_IL_ID
+    )
+) CLUSTER BY (IL_STA_IL_ID);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- IL_ERR_Installation_Error table (on IL_Installation)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.IL_ERR_Installation_Error (
+    IL_ERR_IL_ID int not null,
+    IL_ERR_Installation_Error varchar(2000) not null,
+    constraint fkIL_ERR_Installation_Error foreign key (
+        IL_ERR_IL_ID
+    ) references metadata.IL_Installation(IL_ID),
+    constraint pkIL_ERR_Installation_Error primary key (
+        IL_ERR_IL_ID
+    )
+) CLUSTER BY (IL_ERR_IL_ID);
 -- TIES ---------------------------------------------------------------------------------------------------------------
 --
 -- Ties are used to represent relationships between entities.
@@ -412,6 +504,44 @@ CREATE TABLE IF NOT EXISTS metadata.CF_uses_TP_template (
 ) CLUSTER BY (
     CF_ID_uses,
     TP_ID_template
+);
+-- Knotted static tie table -------------------------------------------------------------------------------------------
+-- IL_installs_CF_configuration table (having 2 roles)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.IL_installs_CF_configuration (
+    IL_ID_installs int not null, 
+    CF_ID_configuration int not null, 
+    constraint IL_installs_CF_configuration_fkIL_installs foreign key (
+        IL_ID_installs
+    ) references metadata.IL_Installation(IL_ID), 
+    constraint IL_installs_CF_configuration_fkCF_configuration foreign key (
+        CF_ID_configuration
+    ) references metadata.CF_Configuration(CF_ID), 
+    constraint pkIL_installs_CF_configuration primary key (
+        IL_ID_installs
+    )
+) CLUSTER BY (
+    IL_ID_installs,
+    CF_ID_configuration
+);
+-- Knotted static tie table -------------------------------------------------------------------------------------------
+-- IL_applies_TP_rendered table (having 2 roles)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.IL_applies_TP_rendered (
+    IL_ID_applies int not null, 
+    TP_ID_rendered int not null, 
+    constraint IL_applies_TP_rendered_fkIL_applies foreign key (
+        IL_ID_applies
+    ) references metadata.IL_Installation(IL_ID), 
+    constraint IL_applies_TP_rendered_fkTP_rendered foreign key (
+        TP_ID_rendered
+    ) references metadata.TP_Template(TP_ID), 
+    constraint pkIL_applies_TP_rendered primary key (
+        IL_ID_applies
+    )
+) CLUSTER BY (
+    IL_ID_applies,
+    TP_ID_rendered
 );
 -- KNOT EQUIVALENCE VIEWS ---------------------------------------------------------------------------------------------
 --
@@ -1423,6 +1553,122 @@ AND
     pOP.OP_ID = hMRG.OP_MRG_OP_ID
 $$
 ;
+-- Latest perspective -------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.lIL_Installation AS
+SELECT
+    IL.IL_ID,
+    RID.IL_RID_IL_ID,
+    RID.IL_RID_Installation_RunId,
+    DDL.IL_DDL_IL_ID,
+    DDL.IL_DDL_Checksum,
+    DDL.IL_DDL_Installation_RenderedSql,
+    RAT.IL_RAT_IL_ID,
+    RAT.IL_RAT_Installation_RenderedAt,
+    STA.IL_STA_IL_ID,
+    kSTA.ILS_InstallationStatus AS IL_STA_ILS_InstallationStatus,
+    STA.IL_STA_ILS_ID,
+    ERR.IL_ERR_IL_ID,
+    ERR.IL_ERR_Installation_Error
+FROM
+    metadata.IL_Installation IL
+LEFT JOIN
+    metadata.IL_RID_Installation_RunId RID
+ON
+    RID.IL_RID_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.IL_DDL_Installation_RenderedSql DDL
+ON
+    DDL.IL_DDL_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.IL_RAT_Installation_RenderedAt RAT
+ON
+    RAT.IL_RAT_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.IL_STA_Installation_Status STA
+ON
+    STA.IL_STA_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.ILS_InstallationStatus kSTA
+ON
+    kSTA.ILS_ID = STA.IL_STA_ILS_ID
+LEFT JOIN
+    metadata.IL_ERR_Installation_Error ERR
+ON
+    ERR.IL_ERR_IL_ID = IL.IL_ID;
+-- Point-in-time perspective ------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.pIL_Installation (
+    changingTimepoint timestamp_tz
+)
+RETURNS TABLE (
+    IL_ID int,
+    IL_RID_IL_ID int,
+    IL_RID_Installation_RunId varchar(36),
+    IL_DDL_IL_ID int,
+    IL_DDL_Checksum numeric(19,0),
+    IL_DDL_Installation_RenderedSql varchar(16777216),
+    IL_RAT_IL_ID int,
+    IL_RAT_Installation_RenderedAt timestamp_tz,
+    IL_STA_IL_ID int,
+    IL_STA_ILS_InstallationStatus varchar(42),
+    IL_STA_ILS_ID tinyint,
+    IL_ERR_IL_ID int,
+    IL_ERR_Installation_Error varchar(2000)
+)
+AS
+$$
+SELECT
+    IL.IL_ID,
+    RID.IL_RID_IL_ID,
+    RID.IL_RID_Installation_RunId,
+    DDL.IL_DDL_IL_ID,
+    DDL.IL_DDL_Checksum,
+    DDL.IL_DDL_Installation_RenderedSql,
+    RAT.IL_RAT_IL_ID,
+    RAT.IL_RAT_Installation_RenderedAt,
+    STA.IL_STA_IL_ID,
+    kSTA.ILS_InstallationStatus AS IL_STA_ILS_InstallationStatus,
+    STA.IL_STA_ILS_ID,
+    ERR.IL_ERR_IL_ID,
+    ERR.IL_ERR_Installation_Error
+FROM
+    metadata.IL_Installation IL
+LEFT JOIN
+    metadata.IL_RID_Installation_RunId RID
+ON
+    RID.IL_RID_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.IL_DDL_Installation_RenderedSql DDL
+ON
+    DDL.IL_DDL_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.IL_RAT_Installation_RenderedAt RAT
+ON
+    RAT.IL_RAT_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.IL_STA_Installation_Status STA
+ON
+    STA.IL_STA_IL_ID = IL.IL_ID
+LEFT JOIN
+    metadata.ILS_InstallationStatus kSTA
+ON
+    kSTA.ILS_ID = STA.IL_STA_ILS_ID
+LEFT JOIN
+    metadata.IL_ERR_Installation_Error ERR
+ON
+    ERR.IL_ERR_IL_ID = IL.IL_ID
+$$
+;
+-- Now perspective ----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.nIL_Installation
+AS
+SELECT
+    *
+FROM
+    TABLE(metadata.pIL_Installation(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
+;
 -- NEXUS TEMPORAL PERSPECTIVES ----------------------------------------------------------------------------------------
 --
 -- Snowflake-native nexus perspectives: latest (l), point-in-time (p), now (n), difference (d),
@@ -1543,5 +1789,75 @@ SELECT
     *
 FROM
     TABLE(metadata.pCF_uses_TP_template(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
+;
+-- Latest perspective -------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.lIL_installs_CF_configuration AS
+SELECT
+    tie.IL_ID_installs,
+    tie.CF_ID_configuration
+FROM
+    metadata.IL_installs_CF_configuration tie
+;
+-- Point-in-time perspective ------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.pIL_installs_CF_configuration (
+    changingTimepoint timestamp_tz
+)
+RETURNS TABLE (
+    IL_ID_installs int,
+    CF_ID_configuration int
+)
+AS
+$$
+SELECT
+    tie.IL_ID_installs,
+    tie.CF_ID_configuration
+FROM
+    metadata.IL_installs_CF_configuration tie
+$$
+;
+-- Now perspective ----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.nIL_installs_CF_configuration AS
+SELECT
+    *
+FROM
+    TABLE(metadata.pIL_installs_CF_configuration(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
+;
+-- Latest perspective -------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.lIL_applies_TP_rendered AS
+SELECT
+    tie.IL_ID_applies,
+    tie.TP_ID_rendered
+FROM
+    metadata.IL_applies_TP_rendered tie
+;
+-- Point-in-time perspective ------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.pIL_applies_TP_rendered (
+    changingTimepoint timestamp_tz
+)
+RETURNS TABLE (
+    IL_ID_applies int,
+    TP_ID_rendered int
+)
+AS
+$$
+SELECT
+    tie.IL_ID_applies,
+    tie.TP_ID_rendered
+FROM
+    metadata.IL_applies_TP_rendered tie
+$$
+;
+-- Now perspective ----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW metadata.nIL_applies_TP_rendered AS
+SELECT
+    *
+FROM
+    TABLE(metadata.pIL_applies_TP_rendered(CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP)::timestamp_tz))
 ;
 -- DESCRIPTIONS -------------------------------------------------------------------------------------------------------

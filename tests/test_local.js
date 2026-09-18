@@ -1,5 +1,5 @@
 // Quick local smoke test for sisula.js
-var sisulate = require('./webapp/sisula.js');
+var sisulate = require('../webapp/sisula.js');
 
 function test(name, template, bindings, expected) {
     var result = sisulate(template, bindings);

@@ -192,6 +192,9 @@ DECLARE
     template_text VARCHAR;
     rendered VARCHAR;
     missing_native INT;
+    il_id INT;
+    tp_id INT;
+    now_ts TIMESTAMP_TZ := SYSDATE();
     bad_run_id EXCEPTION (-20001, 'Run id must be a GUID');
     no_template EXCEPTION (-20005, 'Template not found');
     render_failed EXCEPTION (-20007, 'Template rendering produced no SQL');
@@ -218,18 +221,38 @@ BEGIN
     IF (missing_native > 0) THEN RAISE stale_template; END IF;
 
     -- COPY INTO cannot take the rendered text as a bind, and embedding it as a literal
-    -- would reintroduce the escaping problem this design exists to remove. A session
-    -- temporary table carries it across instead.
-    CREATE OR REPLACE TEMPORARY TABLE metadata._RenderBuffer (content VARCHAR);
-    INSERT INTO metadata._RenderBuffer (content) VALUES (:rendered);
+    -- would reintroduce the escaping problem this design exists to remove. The rendered
+    -- DDL is recorded against an Installation instead, which both carries it into the
+    -- unload and keeps a durable record after the staged file is pruned.
+    SELECT metadata.IL_Installation_ID_SEQ.NEXTVAL INTO :il_id;
+    INSERT INTO metadata.IL_Installation (IL_ID) VALUES (:il_id);
+    INSERT INTO metadata.IL_RID_Installation_RunId (IL_RID_IL_ID, IL_RID_Installation_RunId)
+        VALUES (:il_id, :RUN_ID);
+    INSERT INTO metadata.IL_DDL_Installation_RenderedSql (IL_DDL_IL_ID, IL_DDL_Installation_RenderedSql)
+        VALUES (:il_id, :rendered);
+    INSERT INTO metadata.IL_RAT_Installation_RenderedAt (IL_RAT_IL_ID, IL_RAT_Installation_RenderedAt)
+        VALUES (:il_id, :now_ts);
+    -- Status is set once, by _InstallationCompleted. An installation with no status row
+    -- was rendered but never reported back on.
 
     -- SINGLE = TRUE cannot overwrite, which is why the filename carries a fresh run id.
     EXECUTE IMMEDIATE
         'COPY INTO @metadata.WORKFLOWER/out/' || :RUN_ID || '.sql ' ||
-        'FROM (SELECT content FROM metadata._RenderBuffer) ' ||
+        'FROM (SELECT IL_DDL_Installation_RenderedSql FROM metadata.IL_DDL_Installation_RenderedSql ' ||
+        'WHERE IL_DDL_IL_ID = ' || :il_id || ') ' ||
         'FILE_FORMAT = (FORMAT_NAME = ''metadata.WF_RAW'') SINGLE = TRUE';
 
-    RETURN OBJECT_CONSTRUCT('run_id', :RUN_ID, 'bytes', LENGTH(:rendered),
+    -- Record which template produced it.
+    SELECT tp.TP_ID INTO :tp_id
+    FROM metadata.TP_Template tp
+    JOIN metadata.TP_NAM_Template_Name nam ON nam.TP_NAM_TP_ID = tp.TP_ID
+    WHERE nam.TP_NAM_Template_Name = :TEMPLATE_NAME;
+    IF (tp_id IS NOT NULL) THEN
+        INSERT INTO metadata.IL_applies_TP_rendered (IL_ID_applies, TP_ID_rendered)
+        VALUES (:il_id, :tp_id);
+    END IF;
+
+    RETURN OBJECT_CONSTRUCT('run_id', :RUN_ID, 'il_id', :il_id, 'bytes', LENGTH(:rendered),
                             'lines', ARRAY_SIZE(SPLIT(:rendered, '\n')));
 END;
 $$;
@@ -244,6 +267,7 @@ DECLARE
     config_text VARCHAR;
     bindings VARCHAR;
     result VARIANT;
+    new_il_id INT;
     no_config EXCEPTION (-20006, 'Configuration not found');
 BEGIN
     SELECT CF_CNT_Configuration_Content INTO :config_text
@@ -255,7 +279,58 @@ BEGIN
     bindings := (SELECT TO_JSON(OBJECT_INSERT(PARSE_JSON(:config_text), 'CF_ID', :CF_ID, TRUE)));
 
     result := (CALL metadata._RenderTextToStage(:bindings, :TEMPLATE_NAME, :RUN_ID));
+
+    -- Tie the installation to the configuration it came from, so the audit trail survives
+    -- the staged file being pruned. The identity is read into a variable first: a VARIANT
+    -- path is not a valid expression inside a VALUES clause.
+    new_il_id := (SELECT :result:il_id::INT);
+    INSERT INTO metadata.IL_installs_CF_configuration (IL_ID_installs, CF_ID_configuration)
+    VALUES (:new_il_id, :CF_ID);
+
     RETURN result;
+END;
+$$;
+
+-- ============================================================
+-- RECORD THE OUTCOME OF AN INSTALLATION
+-- ============================================================
+-- The client executes the staged DDL itself, so it reports back what happened. The outcome
+-- is set once and never changes, which is why Status is a static knotted attribute; an
+-- installation with no status row was rendered but never reported back on.
+
+CREATE OR REPLACE PROCEDURE metadata._InstallationCompleted(RUN_ID VARCHAR, STATUS VARCHAR, ERROR VARCHAR DEFAULT NULL)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    il_id INT;
+    ils_id TINYINT;
+    now_ts TIMESTAMP_TZ := SYSDATE();
+    bad_run_id EXCEPTION (-20001, 'Run id must be a GUID');
+    no_installation EXCEPTION (-20009, 'No installation with that run id');
+    bad_status EXCEPTION (-20010, 'Status must be Installed or Failed');
+BEGIN
+    IF (NOT metadata._IsRunId(:RUN_ID)) THEN RAISE bad_run_id; END IF;
+    IF (:STATUS NOT IN ('Installed', 'Failed')) THEN RAISE bad_status; END IF;
+
+    SELECT IL_RID_IL_ID INTO :il_id
+    FROM metadata.IL_RID_Installation_RunId
+    WHERE IL_RID_Installation_RunId = :RUN_ID;
+    IF (il_id IS NULL) THEN RAISE no_installation; END IF;
+
+    SELECT ILS_ID INTO :ils_id
+    FROM metadata.ILS_InstallationStatus WHERE ILS_InstallationStatus = :STATUS;
+
+    INSERT INTO metadata.IL_STA_Installation_Status (IL_STA_IL_ID, IL_STA_ILS_ID)
+    VALUES (:il_id, :ils_id);
+
+    IF (ERROR IS NOT NULL) THEN
+        INSERT INTO metadata.IL_ERR_Installation_Error (IL_ERR_IL_ID, IL_ERR_Installation_Error)
+        VALUES (:il_id, LEFT(:ERROR, 2000));
+    END IF;
+
+    RETURN :STATUS;
 END;
 $$;
 

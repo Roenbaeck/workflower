@@ -115,6 +115,30 @@ function Remove-Workflow {
     return New-ApiResult -Body ([pscustomobject]@{ status = 'deleted'; cf_id = [int]$id })
 }
 
+# The client executes the DDL, so it is the only thing that knows the outcome. Recording it
+# must never turn a successful install into a reported failure, nor mask the real error on a
+# failed one, so this reports its own problems and returns.
+function Write-InstallationOutcome {
+    param([Parameter(Mandatory = $true)][string] $Connection,
+          [Parameter(Mandatory = $true)][string] $RunId,
+          [Parameter(Mandatory = $true)][ValidateSet('Installed', 'Failed')][string] $Status,
+          [string] $ErrorText)
+
+    $runId = Assert-RunId $RunId
+    $sql = "CALL metadata._InstallationCompleted('$runId', '$Status', NULL);"
+    if ($ErrorText) {
+        # The only place a message crosses into SQL. Snowflake literals need both the quote
+        # and the backslash escaped.
+        $escaped = $ErrorText.Replace('\', '\\').Replace("'", "''")
+        if ($escaped.Length -gt 2000) { $escaped = $escaped.Substring(0, 2000) }
+        $sql = "CALL metadata._InstallationCompleted('$runId', '$Status', '$escaped');"
+    }
+    $result = Invoke-SnowSql -Sql $sql -Connection $Connection
+    if (-not $result.Success) {
+        Write-Host "[warn] Could not record the installation outcome for $runId"
+    }
+}
+
 function Install-Workflow {
     <#
         Render to the stage, then EXECUTE IMMEDIATE FROM that file. Execution stops at the
@@ -141,6 +165,7 @@ function Install-Workflow {
         $apiError = ConvertTo-ApiError -Text $result.Text
         $line = $null
         if ($result.Text -match 'on line (\d+)') { $line = [int]$Matches[1] }
+        Write-InstallationOutcome -Connection $Connection -RunId $runId -Status 'Failed' -ErrorText $apiError.Body.detail
         $apiError.Body = [pscustomobject]@{
             detail  = $apiError.Body.detail
             run_id  = $runId
@@ -149,6 +174,8 @@ function Install-Workflow {
         }
         return $apiError
     }
+
+    Write-InstallationOutcome -Connection $Connection -RunId $runId -Status 'Installed'
 
     return New-ApiResult -Body ([pscustomobject]@{
         cf_id  = [int]$id
@@ -200,15 +227,13 @@ function Import-TaskGraphs {
     $result = Invoke-SnowSql -Sql "CALL metadata._ExportTaskGraphs('$paramsRunId', '$outRunId');" -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
 
-    # Read the export back through the same stage rather than downloading it.
-    $result = Invoke-SnowSql -Sql "CALL metadata._StageReadText('export/$outRunId.json');" -Connection $Connection
-    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
     $row = @($result.Json)[0]
     $json = $null
     if ($row) { $json = ($row.psobject.Properties | Select-Object -First 1).Value }
     if (-not $json) { return New-ApiError -Status 502 -Detail 'The export produced no output' }
+    $payload = $json | ConvertFrom-Json
 
-    return New-ApiResult -Body ([pscustomobject]@{ run_id = $outRunId; graphs = ($json | ConvertFrom-Json) })
+    return New-ApiResult -Body ([pscustomobject]@{ run_id = $outRunId; graphs = $payload.export })
 }
 
 function Get-ConnectionStatus {

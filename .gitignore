@@ -11,3 +11,8 @@ snowflake_cli_setup.png
 # Rendered output from install --dry-run
 examples/rendered/
 rendered/
+
+# Cached Anchor Modeling generator assets (metadata/generate.js)
+metadata/.anchor/
+node_modules/
+package-lock.json

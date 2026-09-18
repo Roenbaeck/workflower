@@ -42,13 +42,11 @@ finally {
 
 Write-Host "Reading tasks in $Schema..."
 $result = Invoke-SnowSqlChecked -Sql "CALL metadata._ExportTaskGraphs('$paramsRunId', '$outRunId');" -Connection $Connection -Activity 'Task export'
-
-$result = Invoke-SnowSqlChecked -Sql "CALL metadata._StageReadText('export/$outRunId.json');" -Connection $Connection -Activity 'Read export'
 $row = @($result.Json)[0]
 $json = ($row.psobject.Properties | Select-Object -First 1).Value
 # ConvertFrom-Json emits a JSON array as one pipeline item on PowerShell 7 but enumerates
 # it on 5.1, so neither @() nor the pipeline gives the same thing on both. Test the type.
-$parsed = ConvertFrom-Json -InputObject $json
+$parsed = (ConvertFrom-Json -InputObject $json).export
 if ($parsed -is [System.Array]) { $graphs = $parsed } else { $graphs = @($parsed) }
 
 if ($graphs.Count -eq 0) {

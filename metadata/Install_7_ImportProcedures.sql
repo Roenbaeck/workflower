@@ -264,13 +264,8 @@ for (var ci = 0; ci < components.length; ci++) {
     });
 }
 
-// ---- write the result to the stage -----------------------------------------
-var payload = JSON.stringify(graphs, null, 2);
-run("CREATE OR REPLACE TEMPORARY TABLE metadata._ExportBuffer (content VARCHAR)");
-run("INSERT INTO metadata._ExportBuffer (content) SELECT ?", [payload]);
-run("COPY INTO @metadata.WORKFLOWER/export/" + OUT_RUN_ID + ".json " +
-    "FROM (SELECT content FROM metadata._ExportBuffer) " +
-    "FILE_FORMAT = (FORMAT_NAME = 'metadata.WF_RAW') SINGLE = TRUE");
-
-return { run_id: OUT_RUN_ID, graphs: graphs.length, tasks: rows.length };
+// Return the graphs directly. Both callers read the export straight back, so writing it to
+// the stage and reading it again crossed the CLI with the same payload twice and needed a
+// scratch table that the metadata model does not describe.
+return { run_id: OUT_RUN_ID, graphs: graphs.length, tasks: rows.length, export: graphs };
 $$;

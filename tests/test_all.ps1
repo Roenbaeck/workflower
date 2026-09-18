@@ -14,7 +14,8 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = Split-Path -Parent $here
 . (Join-Path $root 'webapp\Snow.ps1')
 
 $tests = [ordered]@{
@@ -34,7 +35,7 @@ $passed = 0
 $failed = 0
 
 foreach ($name in $tests.Keys) {
-    $file = Join-Path $root (Join-Path 'sql' $tests[$name])
+    $file = Join-Path $here (Join-Path 'sql' $tests[$name])
     Write-Host "--- $name ---"
     $sql = Get-Content -LiteralPath $file -Raw
     $result = Invoke-SnowSql -Sql $sql -Connection $Connection

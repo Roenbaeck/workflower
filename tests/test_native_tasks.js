@@ -2,9 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { test } = require('node:test');
-const sisulate = require('./webapp/sisula.js');
-const template = fs.readFileSync('webapp/templates/CreateTaskGraph.sql', 'utf8');
-const html = fs.readFileSync('webapp/index.html', 'utf8');
+const repo = require('./repo.js');
+const sisulate = require('../webapp/sisula.js');
+const template = fs.readFileSync(repo('webapp/templates/CreateTaskGraph.sql'), 'utf8');
+const html = fs.readFileSync(repo('webapp/index.html'), 'utf8');
 const root = { name: '"DB"."SC"."ROOT"', is_root: true, state: 'suspended', steps: [], native: {
   header: 'create or replace task "DB"."SC"."ROOT" USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE=\'XSMALL\' WHEN SYSTEM$STREAM_HAS_DATA(\'s\') AS',
   body: "BEGIN SELECT '$value$;'; END", source_state: 'started',
@@ -26,7 +27,7 @@ test('explicitly enabled native roots resume after children', () => {
 });
 
 test('ordinary workflows still render logging procedures', () => {
-  const data = JSON.parse(fs.readFileSync('examples/GolfWorkflow.json', 'utf8'));
+  const data = JSON.parse(fs.readFileSync(repo('examples/GolfWorkflow.json'), 'utf8'));
   const sql = sisulate(template, JSON.stringify(data));
   assert.match(sql, /CREATE OR REPLACE PROCEDURE sp_tsk_import_files/);
   assert.match(sql, /_TaskRunStarting/);

@@ -2,8 +2,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { test } = require('node:test');
+const repo = require('./repo.js');
 
-const html = fs.readFileSync('webapp/index.html', 'utf8');
+const html = fs.readFileSync(repo('webapp/index.html'), 'utf8');
 const helpers = html.slice(html.indexOf('async function api('), html.indexOf('async function saveWorkflow('));
 const selection = html.slice(html.indexOf('async function selectWorkflow('), html.indexOf('function newWorkflow('));
 
