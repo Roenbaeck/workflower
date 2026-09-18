@@ -1,7 +1,0 @@
-#!/bin/bash
-# Render/install using the same Python service as the web API.
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/webapp/python_env.sh"
-prepare_python
-exec "$WORKFLOWER_PYTHON" "$SCRIPT_DIR/webapp/install.py" "$@"

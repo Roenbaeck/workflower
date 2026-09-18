@@ -1,1 +1,0 @@
-The folder sisula-mssql contains the existing SQL Server CLR implementation of Sisula. The main logic is in `SisulaRenderer.cs`, which defines the `fn_sisulate` function. The renderer uses a custom template language with directives like `/*~ foreach ... ~*/` and `/*~ if ... ~*/`, and it relies heavily on SQL Server's JSON functions to access the bindings.
