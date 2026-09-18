@@ -40,7 +40,7 @@ foreach ($name in $steps.Keys) {
 }
 
 # --- Seed the template through the stage ---
-Write-Host '--- 7. Seed template: CreateTaskGraph ---'
+Write-Host '--- 8. Seed template: CreateTaskGraph ---'
 $runId = New-RunId
 $templatePath = Join-Path $root 'webapp\templates\CreateTaskGraph.sql'
 $staged = Join-Path ([System.IO.Path]::GetTempPath()) "$runId.sql"

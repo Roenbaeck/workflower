@@ -107,11 +107,15 @@ doc := (SELECT $1 FROM @metadata.WORKFLOWER/in/<run_id>.json
 CALL metadata._ConfigurationUpsert(doc:WORKFLOW::STRING, TO_JSON(doc), 'Workflow');
 ```
 
-`TO_JSON` reserialises: key order within objects is not preserved (array order is).
-Semantically irrelevant — nothing downstream depends on key order — but exported JSON will
-not be byte-identical to what was imported. If that matters, read with `WF_RAW` and store
-the exact text, at the cost of not being able to extract the name server-side. See
-[Open decisions](#open-decisions).
+**Resolved during implementation:** this does not need to be a trade-off. The procedure
+reads the file once, parses it for the name, and stores the *original text*. Byte-exact
+storage and server-side name extraction at the same time:
+
+```sql
+content := (CALL metadata._StageReadText('in/' || :RUN_ID || '.json'));
+doc     := TRY_PARSE_JSON(:content);
+CALL metadata._ConfigurationUpsert(doc:WORKFLOW::VARCHAR, :content, 'Workflow');
+```
 
 ### `_RenderToStage(cf_id NUMBER, template VARCHAR, run_id VARCHAR)`
 
@@ -342,14 +346,31 @@ Resolved as a side effect: `python_env.sh` on Windows, the `mktemp` permissions 
 `deploy_metadata.sh`, install failures returning HTTP 200, non-atomic rename-on-save, and
 the missing CSP header.
 
-## Open decisions
+## Decisions taken
 
-1. **Key-pair auth on the server?** The profile currently uses a password. Key-pair avoids
-   a stored password and keeps per-invocation logins unattended if MFA is ever enforced.
-2. **Byte-exact storage or `TO_JSON`?** Determines whether exported JSON round-trips
-   identically.
-3. **Keep GitHub Pages?** Determines whether `static.yml` is fixed or deleted.
-4. **Stage retention** for `out/`: kept indefinitely as an audit trail, or aged out.
+1. **Authentication.** Password for now; key-pair when this goes to production. Neither
+   affects the design, since `snow` reads the profile either way.
+2. **Storage fidelity.** Byte-exact. The document is parsed for its name but stored as
+   written, so an export round-trips identically.
+3. **GitHub Pages.** Dropped. `static.yml` is deleted.
+4. **Stage retention.** Files under `out/` are kept as an audit trail. Nothing prunes them
+   automatically; add a scheduled `REMOVE` if they accumulate.
+
+## Traps found while implementing
+
+Each of these produced a wrong answer rather than an obvious failure.
+
+| Trap | Consequence |
+|---|---|
+| Two staged-file subqueries in **one statement** can return the same file | Silently rendered the wrong document. Every read is now its own statement. |
+| `COPY INTO` takes `FORMAT_NAME = 'x'`, not the `=>` form used by stage queries | Syntax error at the unload. |
+| `RETURN (CALL proc(...))` is not valid Snowflake Scripting | Assign to a variable first, then return it. |
+| Snowflake will not overload a procedure with a differing argument list | Adding a defaulted parameter needs an explicit `DROP PROCEDURE` first. |
+| `$ErrorActionPreference = 'Stop'` turns the CLI's framed stderr into a terminating error | Every Snowflake failure surfaced as HTTP 500 carrying a box-drawing border instead of the real message. The native calls set `'Continue'` locally. |
+| `$error` is a PowerShell automatic variable | Must not be shadowed. |
+| `ConvertTo-Json` through the pipeline unrolls a one-element array into an object, and an empty array serialises to `$null` | Would have broken the editor's workflow list at exactly one saved workflow. Use `-InputObject`. |
+| `ConvertFrom-Json` emits a JSON array as **one** pipeline item on PS 7 but **enumerates** it on 5.1 | Neither `@()` nor the pipeline behaves the same on both. Test the type. This one only appears when development and deployment run different PowerShell versions — which is exactly this project's situation. |
+| A multi-line `$- ... -$` Sisula comment is not stripped | The inline comment form is single-line only; the second line leaked into the generated SQL. Use `$-` line comments. |
 
 ## Verified behaviour
 

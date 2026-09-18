@@ -7,6 +7,24 @@ Blocks and tokens
 - Tokens are written as `$path.to.value$` or `${path.to.value}$` and support bracket indexing (e.g. `source.parts[0].name`). Token values are resolved against the JSON bindings or loop variables.
 - Path segments may use Unicode letters (e.g. `$VARIABLES.ÅÄÖ$`); they are quoted appropriately in JSON queries.
 
+Escaping token forms
+- `$'path'$` renders the value as a **quoted SQL string literal**, including the surrounding quotes. Use it everywhere a value lands inside a literal:
+
+        COMMENT = $'task.description'$
+        CALL SYSTEM$SET_RETURN_VALUE($'step.message'$);
+
+  It doubles the single quote, doubles the backslash, turns carriage returns and newlines into `\r` and `\n`, and turns a dollar into `\x24`. The last of those matters because a doubled dollar inside a value would otherwise close the enclosing procedure body. A missing path renders `''`, which keeps the SQL valid.
+
+- `$|path|$` renders the value as **text safe on a single SQL comment line**. Newlines and tabs collapse to spaces and adjacent dollars are separated:
+
+        -- Execute: $|step.description|$
+
+  Without this a two-line description would put its second line outside the `--` comment, as executable SQL.
+
+- The plain `$path$` form interpolates verbatim. It is correct only where the value is genuinely SQL, such as a step's `sql` or an imported task body, or where it is a bare identifier.
+
+All three forms are resolved in a single pass, so a dollar that appears in a *rendered value* is never reinterpreted as a token.
+
 Line directives
 - All line directives require the `$/` prefix.
 - Foreach:

@@ -37,11 +37,11 @@ test('read is available without an open workflow', () => {
 
 test('cold start reads a saved definition and its configuration ID', async () => {
   const editor = createEditor([
-    [{ name: 'Golf / workflow' }, { name: 'Other' }],
+    [{ name: 'Golf / workflow', cf_id: 42 }, { name: 'Other', cf_id: 7 }],
     { name: 'Golf / workflow', cf_id: 42, content: '{"WORKFLOW":"Golf","TASKS":[]}' },
   ]);
   await editor.context.readFromSnowflake();
-  assert.deepEqual(editor.requests, ['/api/workflows', '/api/workflows/Golf%20%2F%20workflow']);
+  assert.deepEqual(editor.requests, ['/api/workflows', '/api/workflows/42']);
   assert.equal(editor.context.data.WORKFLOW, 'Golf');
   assert.equal(editor.context.currentCfId, 42);
   assert.equal(editor.context.dirty, false);
@@ -51,11 +51,11 @@ test('cold start reads a saved definition and its configuration ID', async () =>
 
 test('explicit read reloads current workflow instead of the first entry', async () => {
   const editor = createEditor([
-    [{ name: 'First' }, { name: 'Current' }],
+    [{ name: 'First', cf_id: 1 }, { name: 'Current', cf_id: 2 }],
     { name: 'Current', cf_id: 2, content: '{"WORKFLOW":"Current"}' },
   ], { current: 'Current', dirty: true });
   await editor.context.readFromSnowflake();
-  assert.equal(editor.requests[1], '/api/workflows/Current');
+  assert.equal(editor.requests[1], '/api/workflows/2');
   assert.equal(editor.context.data.TASKS.length, 0);
   assert.equal(editor.context.dirty, false);
 });
@@ -93,7 +93,7 @@ test('invalid stored definitions do not partially replace editor state', async (
   for (const content of ['invalid', 'null', '[]']) {
     const data = { WORKFLOW: 'Draft' };
     const editor = createEditor([
-      [{ name: 'Saved' }], { name: 'Saved', cf_id: 42, content },
+      [{ name: 'Saved', cf_id: 42 }], { name: 'Saved', cf_id: 42, content },
     ], { current: '__new__', data, dirty: true });
     await editor.context.readFromSnowflake();
     assert.equal(editor.context.current, '__new__');
@@ -105,10 +105,11 @@ test('invalid stored definitions do not partially replace editor state', async (
 });
 
 test('sidebar selection reads a different saved workflow', async () => {
+  // The library listing carries the CF_ID that loadWorkflow resolves the name against.
   const editor = createEditor([
     { name: 'Other', cf_id: 7, content: '{"WORKFLOW":"Other"}' },
-  ]);
+  ], { workflows: [{ name: 'Other', cf_id: 7 }] });
   await editor.context.selectWorkflow('Other');
-  assert.equal(editor.requests[0], '/api/workflows/Other');
+  assert.equal(editor.requests[0], '/api/workflows/7');
   assert.equal(editor.context.currentCfId, 7);
 });
