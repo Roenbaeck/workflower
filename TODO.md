@@ -41,13 +41,6 @@ Originally a code review from 2026-09-17. Updated 2026-09-18 during the PowerShe
   `STATUS` column that `test_all.ps1` checks. The other five files render a template and
   print the output for a human to read, so a regression in them is invisible to CI.
 
-## Needs an account grant
-
-- [ ] **`EXECUTE MANAGED TASK` is not granted**, so serverless tasks can be authored,
-  validated and created but not run. `ACCOUNTADMIN` runs
-  `GRANT EXECUTE MANAGED TASK ON ACCOUNT TO ROLE SYSADMIN;`, the same shape as the
-  `EXECUTE TASK` grant.
-
 ## Reported upstream
 
 - [ ] **The Anchor Modeler generates an invalid rewinder for a knotted historized
@@ -69,6 +62,12 @@ Originally a code review from 2026-09-17. Updated 2026-09-18 during the PowerShe
 
 ## Fixed
 
+- [x] **Serverless tasks can now run.** `EXECUTE MANAGED TASK` has been granted to
+  `SYSADMIN`, and a two-task serverless graph was verified end to end: both tasks rendered
+  `USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE` with no warehouse, shared one graph run id,
+  recorded lineage and row counts, and the child published its return value. The grant is
+  an account prerequisite rather than something this repo installs, so it stays documented
+  in the README's serverless section for anyone deploying elsewhere.
 - [x] **The JavaScript tests now run.** Node 24 LTS installed on the development machine;
   `test_local.js` and the three `node --test` files pass (22 tests), including
   `test_workflow_read.js` updated for CF_ID addressing. Note that Node is *not* on the
