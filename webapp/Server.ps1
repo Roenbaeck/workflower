@@ -108,8 +108,36 @@ function Invoke-Route {
         if ($Method -eq 'GET')    { return Get-Workflow -Connection $Connection -CfId $Matches[1] }
         if ($Method -eq 'DELETE') { return Remove-Workflow -Connection $Connection -CfId $Matches[1] }
     }
+    if ($Path -eq '/api/environments' -and $Method -eq 'GET') {
+        return Get-Environments -Connection $Connection
+    }
+    if ($Path -eq '/api/environments' -and $Method -eq 'PUT') {
+        # An environment is a configuration too; it names itself with NAME.
+        return Save-Workflow -Connection $Connection -Body (Read-RequestBody $Context) `
+               -PreviousCfId $Context.Request.QueryString['previous'] -ConfigType 'Environment'
+    }
+    if ($Path -match '^/api/reports/(TaskRuns|GraphRuns|Lineage|ContainerFlow|Installations)$' -and $Method -eq 'GET') {
+        $limit = 100
+        if ($Context.Request.QueryString['limit']) { [void][int]::TryParse($Context.Request.QueryString['limit'], [ref]$limit) }
+        return Get-Report -Connection $Connection -View $Matches[1] -Limit $limit
+    }
     if ($Path -match '^/api/workflows/(\d+)/install$' -and $Method -eq 'POST') {
-        return Install-Workflow -Connection $Connection -CfId $Matches[1]
+        # ?environment=<cf_id> merges an Environment configuration over the workflow.
+        return Install-Workflow -Connection $Connection -CfId $Matches[1] `
+               -EnvironmentCfId $Context.Request.QueryString['environment']
+    }
+    if ($Path -match '^/api/workflows/(\d+)/validate$' -and $Method -eq 'POST') {
+        return Test-Workflow -Connection $Connection -CfId $Matches[1]
+    }
+    if ($Path -match '^/api/workflows/(\d+)/tasks$' -and $Method -eq 'GET') {
+        return Get-WorkflowTaskStates -Connection $Connection -CfId $Matches[1]
+    }
+    if ($Path -match '^/api/workflows/(\d+)/(resume|suspend)$' -and $Method -eq 'POST') {
+        $state = $(if ($Matches[2] -eq 'resume') { 'running' } else { 'suspended' })
+        return Set-WorkflowState -Connection $Connection -CfId $Matches[1] -State $state
+    }
+    if ($Path -match '^/api/workflows/(\d+)/run$' -and $Method -eq 'POST') {
+        return Start-WorkflowRun -Connection $Connection -CfId $Matches[1]
     }
     if ($Path -match '^/api/rendered/([0-9a-fA-F-]{36})$' -and $Method -eq 'GET') {
         return Get-RenderedSql -Connection $Connection -RunId $Matches[1]

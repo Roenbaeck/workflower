@@ -35,14 +35,30 @@ DECLARE
     row_count INT;
     cfg VARCHAR;
 BEGIN
-    grp_id := (SELECT COALESCE(
-        SYSTEM$TASK_RUNTIME_INFO('CURRENT_ROOT_TASK_UUID'),
-        UUID_STRING()
-    ));
+$- SYSTEM$TASK_RUNTIME_INFO raises outside a task rather than returning null, so a
+$- COALESCE around it can never fall back. Catching it instead lets this procedure be
+$- called directly, which is how a workflow is tested without executing the whole graph.
+    BEGIN
+        grp_id := (SELECT SYSTEM$TASK_RUNTIME_INFO('CURRENT_ROOT_TASK_UUID'));
+    EXCEPTION
+        WHEN OTHER THEN
+            grp_id := (SELECT UUID_STRING());
+    END;
 
-    cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG('workflow'));
+$- Guarded separately from the run id above: this one also raises when the graph simply
+$- has no CONFIG set, and sharing a handler would replace a perfectly good run id with a
+$- fresh UUID and break correlation across the graph's task runs.
+    BEGIN
+        cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG('workflow'));
+    EXCEPTION
+        WHEN OTHER THEN
+            cfg := NULL;
+    END;
 
-    tr_id := (CALL metadata._TaskRunStarting($'task.name'$, :grp_id, :cfg));
+$- The workflow name comes from the bindings, not from :cfg. _TaskRunStarting looks up a
+$- configuration by name, and :cfg holds the graph CONFIG document, so passing it meant the
+$- tie to the configuration never matched and every run reported an unknown workflow.
+    tr_id := (CALL metadata._TaskRunStarting($'task.name'$, :grp_id, $'WORKFLOW'$));
 $/ foreach step in task.steps
 $/ if step.type == "proc"
 
@@ -76,7 +92,15 @@ $/ if step.type == "return_value"
 $/ endif
 $/ endfor
 
+    CALL metadata._TaskRunFinished(:tr_id);
     RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        $- Record the failure, then re-raise so Snowflake still marks the task failed and
+        $- dependent tasks do not run. Without this the task run row stayed open and a
+        $- graph that failed every night looked healthy in the metadata.
+        CALL metadata._TaskRunFailed(:tr_id, :SQLERRM);
+        RAISE;
 END;
 $$;
 

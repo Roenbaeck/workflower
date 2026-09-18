@@ -20,6 +20,10 @@
     <metadata capsule="metadata" generator="false"/>
     <layout x="150.00" y="690.00" fixed="false"/>
   </knot>
+  <knot mnemonic="TRS" descriptor="TaskRunStatus" identity="tinyint" dataRange="varchar(42)">
+    <metadata capsule="metadata" generator="false"/>
+    <layout x="700.00" y="640.00" fixed="false"/>
+  </knot>
   <anchor mnemonic="TR" descriptor="TaskRun" identity="int">
     <metadata capsule="metadata" generator="true"/>
     <attribute mnemonic="NAM" descriptor="TaskName" knotRange="TKN">
@@ -29,6 +33,22 @@
     <attribute mnemonic="GRG" descriptor="GraphRunGroupId" knotRange="GRG">
       <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
       <layout x="894.50" y="673.89" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="BEG" descriptor="StartedAt" dataRange="timestamp_tz">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="742.00" y="520.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="FIN" descriptor="FinishedAt" dataRange="timestamp_tz">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="742.00" y="580.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="STA" descriptor="Status" knotRange="TRS">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="770.00" y="620.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="ERR" descriptor="Error" dataRange="varchar(2000)">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="672.00" y="560.00" fixed="false"/>
     </attribute>
     <layout x="836.91" y="557.33" fixed="false"/>
   </anchor>

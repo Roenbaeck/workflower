@@ -61,6 +61,57 @@ Because the generated DDL uses `CREATE TABLE IF NOT EXISTS`, changing an existin
 attribute's temporalization requires dropping its table before redeploying; the generator
 will not alter one in place.
 
+### Runs are recorded
+
+Every task execution records when it started, when it finished, its outcome and any error,
+and the generated task body has an exception handler that records a failure and re-raises
+so Snowflake still fails the task. Reporting views answer the questions directly:
+
+| View | Question |
+|---|---|
+| `metadata.TaskRuns` | What ran, when, for how long, and did it work? |
+| `metadata.GraphRuns` | Did last night's graph succeed? |
+| `metadata.Lineage` | What did each task read and write, and how many rows? |
+| `metadata.ContainerFlow` | What feeds what — impact analysis |
+| `metadata.Installations` | What was deployed, when, and how did it go? |
+
+```sql
+SELECT WORKFLOW, STATUS, TASKS, FAILED, STARTED_AT
+FROM metadata.GraphRuns ORDER BY STARTED_AT DESC LIMIT 10;
+```
+
+A run with no status is still running or died without being able to report. The editor's
+**Runs** tab shows the same history for the open workflow.
+
+### Environments
+
+The same workflow installs into dev and production without being edited. An environment is
+a configuration whose keys are merged over the workflow's own at render time:
+
+```json
+{ "NAME": "production", "WAREHOUSE": "ETL_WH", "TASK_TIMEOUT": 7200000, "MAX_FAILURES": 1 }
+```
+
+`PUT /api/environments` stores one; the editor's environment picker chooses which to
+install with. Environment keys win over the workflow's, and the whole environment is also
+exposed to templates as `$ENV.<key>$`.
+
+### Validation
+
+A graph is validated before anything is rendered: duplicate names, predecessors that do
+not exist, more than one root, cycles, a schedule on a non-root task, and steps missing
+required fields. An invalid workflow is refused with the list of problems rather than
+discovered halfway through applying the DDL. **More → Validate graph** checks on demand.
+
+### Operating an installed workflow
+
+**More → Task states…** reports what each task is actually doing, and offers Resume,
+Suspend and Run now. Resume enables children before the root and suspend does the reverse,
+so a graph is never able to fire with a partially enabled body.
+
+`Run now` needs the `EXECUTE TASK` privilege granted to the task owner's role; without it
+the reason is reported rather than failing silently.
+
 ### Installations are recorded
 
 Every render creates an `IL_Installation`, tied to the configuration it came from and the
@@ -215,6 +266,11 @@ The server binds to `127.0.0.1`, serves only an explicit allowlist of browser as
 rejects cross-origin writes, and sets a restrictive CSP. It is a single-user administrative
 tool with no authentication; shared hosting would require an authentication and
 authorization design.
+
+The server handles **one request at a time**, and each one shells out to the Snowflake CLI,
+so concurrent requests from the browser serialise behind each other. That is fine for a
+single-user tool but it means the editor issues its startup calls in sequence rather than
+in parallel.
 
 A non-administrator account may need a URL reservation before it can listen:
 

@@ -57,6 +57,36 @@ function Assert-Id {
     return $text
 }
 
+# ConvertFrom-Json emits a JSON array as a single pipeline item on PowerShell 7 but
+# enumerates it on 5.1, so neither @() nor the pipeline yields a real array on both. An
+# empty array is the dangerous case: wrapped, it has Count 1 and reads as "not empty".
+# The leading comma on every return matters: PowerShell unrolls a returned array, so
+# `return @()` yields nothing at all and the caller sees $null rather than an empty array.
+function ConvertFrom-JsonArray {
+    param([string] $Json)
+    # Materialise into a fresh array rather than returning what ConvertFrom-Json gave back:
+    # that value can carry a PSObject wrapper which ConvertTo-Json then renders as
+    # {"value":[...],"Count":n} instead of a plain list.
+    $list = New-Object System.Collections.Generic.List[object]
+    if ($Json) {
+        $parsed = ConvertFrom-Json -InputObject $Json
+        if ($null -ne $parsed) {
+            if ($parsed -is [System.Array]) { foreach ($item in $parsed) { $list.Add($item) } }
+            else { $list.Add($parsed) }
+        }
+    }
+    # The leading comma stops PowerShell unrolling the array back into nothing.
+    return ,$list.ToArray()
+}
+
+# The single scalar a CALL returns, whatever the procedure was named.
+function Get-CallResult {
+    param($Json)
+    $row = @($Json)[0]
+    if (-not $row) { return $null }
+    return ($row.psobject.Properties | Select-Object -First 1).Value
+}
+
 function Invoke-SnowSql {
     <#
         Runs SQL and returns a result object rather than throwing, so callers can map a

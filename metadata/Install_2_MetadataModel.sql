@@ -74,13 +74,26 @@ CREATE TABLE IF NOT EXISTS metadata.ILS_InstallationStatus (
         ILS_InstallationStatus
     )
 ) CLUSTER BY (ILS_ID);
+-- Knot table ---------------------------------------------------------------------------------------------------------
+-- TRS_TaskRunStatus table
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.TRS_TaskRunStatus (
+    TRS_ID tinyint not null,
+    TRS_TaskRunStatus varchar(42) not null,
+    constraint pkTRS_TaskRunStatus primary key (
+        TRS_ID
+    ),
+    constraint uqTRS_TaskRunStatus unique (
+        TRS_TaskRunStatus
+    )
+) CLUSTER BY (TRS_ID);
 -- ANCHORS ------------------------------------------------------------------------------------------------------------
 --
 -- Anchors are used to store the identities of entities.
 -- Anchors are immutable.
 --
 -- Anchor table -------------------------------------------------------------------------------------------------------
--- TR_TaskRun table (with 2 attributes)
+-- TR_TaskRun table (with 6 attributes)
 -----------------------------------------------------------------------------------------------------------------------
 CREATE SEQUENCE IF NOT EXISTS metadata.TR_TaskRun_ID_SEQ START 1 INCREMENT 1;
 CREATE TABLE IF NOT EXISTS metadata.TR_TaskRun (
@@ -181,6 +194,61 @@ CREATE TABLE IF NOT EXISTS metadata.TR_GRG_TaskRun_GraphRunGroupId (
         TR_GRG_TR_ID
     )
 ) CLUSTER BY (TR_GRG_TR_ID);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- TR_BEG_TaskRun_StartedAt table (on TR_TaskRun)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.TR_BEG_TaskRun_StartedAt (
+    TR_BEG_TR_ID int not null,
+    TR_BEG_TaskRun_StartedAt timestamp_tz not null,
+    constraint fkTR_BEG_TaskRun_StartedAt foreign key (
+        TR_BEG_TR_ID
+    ) references metadata.TR_TaskRun(TR_ID),
+    constraint pkTR_BEG_TaskRun_StartedAt primary key (
+        TR_BEG_TR_ID
+    )
+) CLUSTER BY (TR_BEG_TR_ID);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- TR_FIN_TaskRun_FinishedAt table (on TR_TaskRun)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.TR_FIN_TaskRun_FinishedAt (
+    TR_FIN_TR_ID int not null,
+    TR_FIN_TaskRun_FinishedAt timestamp_tz not null,
+    constraint fkTR_FIN_TaskRun_FinishedAt foreign key (
+        TR_FIN_TR_ID
+    ) references metadata.TR_TaskRun(TR_ID),
+    constraint pkTR_FIN_TaskRun_FinishedAt primary key (
+        TR_FIN_TR_ID
+    )
+) CLUSTER BY (TR_FIN_TR_ID);
+-- Knotted static attribute table -------------------------------------------------------------------------------------
+-- TR_STA_TaskRun_Status table (on TR_TaskRun)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.TR_STA_TaskRun_Status (
+    TR_STA_TR_ID int not null,
+    TR_STA_TRS_ID tinyint not null,
+    constraint fk_A_TR_STA_TaskRun_Status foreign key (
+        TR_STA_TR_ID
+    ) references metadata.TR_TaskRun(TR_ID),
+    constraint fk_K_TR_STA_TaskRun_Status foreign key (
+        TR_STA_TRS_ID
+    ) references metadata.TRS_TaskRunStatus(TRS_ID),
+    constraint pkTR_STA_TaskRun_Status primary key (
+        TR_STA_TR_ID
+    )
+) CLUSTER BY (TR_STA_TR_ID);
+-- Static attribute table ---------------------------------------------------------------------------------------------
+-- TR_ERR_TaskRun_Error table (on TR_TaskRun)
+-----------------------------------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS metadata.TR_ERR_TaskRun_Error (
+    TR_ERR_TR_ID int not null,
+    TR_ERR_TaskRun_Error varchar(2000) not null,
+    constraint fkTR_ERR_TaskRun_Error foreign key (
+        TR_ERR_TR_ID
+    ) references metadata.TR_TaskRun(TR_ID),
+    constraint pkTR_ERR_TaskRun_Error primary key (
+        TR_ERR_TR_ID
+    )
+) CLUSTER BY (TR_ERR_TR_ID);
 -- Static attribute table ---------------------------------------------------------------------------------------------
 -- CO_NAM_Container_Name table (on CO_Container)
 -----------------------------------------------------------------------------------------------------------------------
@@ -746,49 +814,16 @@ SELECT
     NAM.TR_NAM_TKN_ID,
     GRG.TR_GRG_TR_ID,
     kGRG.GRG_GraphRunGroupId AS TR_GRG_GRG_GraphRunGroupId,
-    GRG.TR_GRG_GRG_ID
-FROM
-    metadata.TR_TaskRun TR
-LEFT JOIN
-    metadata.TR_NAM_TaskRun_TaskName NAM
-ON
-    NAM.TR_NAM_TR_ID = TR.TR_ID
-LEFT JOIN
-    metadata.TKN_TaskName kNAM
-ON
-    kNAM.TKN_ID = NAM.TR_NAM_TKN_ID
-LEFT JOIN
-    metadata.TR_GRG_TaskRun_GraphRunGroupId GRG
-ON
-    GRG.TR_GRG_TR_ID = TR.TR_ID
-LEFT JOIN
-    metadata.GRG_GraphRunGroupId kGRG
-ON
-    kGRG.GRG_ID = GRG.TR_GRG_GRG_ID;
--- Point-in-time perspective ------------------------------------------------------------------------------------------
------------------------------------------------------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION metadata.pTR_TaskRun (
-    changingTimepoint timestamp_tz
-)
-RETURNS TABLE (
-    TR_ID int,
-    TR_NAM_TR_ID int,
-    TR_NAM_TKN_TaskName varchar(500),
-    TR_NAM_TKN_ID int,
-    TR_GRG_TR_ID int,
-    TR_GRG_GRG_GraphRunGroupId varchar(100),
-    TR_GRG_GRG_ID int
-)
-AS
-$$
-SELECT
-    TR.TR_ID,
-    NAM.TR_NAM_TR_ID,
-    kNAM.TKN_TaskName AS TR_NAM_TKN_TaskName,
-    NAM.TR_NAM_TKN_ID,
-    GRG.TR_GRG_TR_ID,
-    kGRG.GRG_GraphRunGroupId AS TR_GRG_GRG_GraphRunGroupId,
-    GRG.TR_GRG_GRG_ID
+    GRG.TR_GRG_GRG_ID,
+    BEG.TR_BEG_TR_ID,
+    BEG.TR_BEG_TaskRun_StartedAt,
+    FIN.TR_FIN_TR_ID,
+    FIN.TR_FIN_TaskRun_FinishedAt,
+    STA.TR_STA_TR_ID,
+    kSTA.TRS_TaskRunStatus AS TR_STA_TRS_TaskRunStatus,
+    STA.TR_STA_TRS_ID,
+    ERR.TR_ERR_TR_ID,
+    ERR.TR_ERR_TaskRun_Error
 FROM
     metadata.TR_TaskRun TR
 LEFT JOIN
@@ -807,6 +842,106 @@ LEFT JOIN
     metadata.GRG_GraphRunGroupId kGRG
 ON
     kGRG.GRG_ID = GRG.TR_GRG_GRG_ID
+LEFT JOIN
+    metadata.TR_BEG_TaskRun_StartedAt BEG
+ON
+    BEG.TR_BEG_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.TR_FIN_TaskRun_FinishedAt FIN
+ON
+    FIN.TR_FIN_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.TR_STA_TaskRun_Status STA
+ON
+    STA.TR_STA_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.TRS_TaskRunStatus kSTA
+ON
+    kSTA.TRS_ID = STA.TR_STA_TRS_ID
+LEFT JOIN
+    metadata.TR_ERR_TaskRun_Error ERR
+ON
+    ERR.TR_ERR_TR_ID = TR.TR_ID;
+-- Point-in-time perspective ------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION metadata.pTR_TaskRun (
+    changingTimepoint timestamp_tz
+)
+RETURNS TABLE (
+    TR_ID int,
+    TR_NAM_TR_ID int,
+    TR_NAM_TKN_TaskName varchar(500),
+    TR_NAM_TKN_ID int,
+    TR_GRG_TR_ID int,
+    TR_GRG_GRG_GraphRunGroupId varchar(100),
+    TR_GRG_GRG_ID int,
+    TR_BEG_TR_ID int,
+    TR_BEG_TaskRun_StartedAt timestamp_tz,
+    TR_FIN_TR_ID int,
+    TR_FIN_TaskRun_FinishedAt timestamp_tz,
+    TR_STA_TR_ID int,
+    TR_STA_TRS_TaskRunStatus varchar(42),
+    TR_STA_TRS_ID tinyint,
+    TR_ERR_TR_ID int,
+    TR_ERR_TaskRun_Error varchar(2000)
+)
+AS
+$$
+SELECT
+    TR.TR_ID,
+    NAM.TR_NAM_TR_ID,
+    kNAM.TKN_TaskName AS TR_NAM_TKN_TaskName,
+    NAM.TR_NAM_TKN_ID,
+    GRG.TR_GRG_TR_ID,
+    kGRG.GRG_GraphRunGroupId AS TR_GRG_GRG_GraphRunGroupId,
+    GRG.TR_GRG_GRG_ID,
+    BEG.TR_BEG_TR_ID,
+    BEG.TR_BEG_TaskRun_StartedAt,
+    FIN.TR_FIN_TR_ID,
+    FIN.TR_FIN_TaskRun_FinishedAt,
+    STA.TR_STA_TR_ID,
+    kSTA.TRS_TaskRunStatus AS TR_STA_TRS_TaskRunStatus,
+    STA.TR_STA_TRS_ID,
+    ERR.TR_ERR_TR_ID,
+    ERR.TR_ERR_TaskRun_Error
+FROM
+    metadata.TR_TaskRun TR
+LEFT JOIN
+    metadata.TR_NAM_TaskRun_TaskName NAM
+ON
+    NAM.TR_NAM_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.TKN_TaskName kNAM
+ON
+    kNAM.TKN_ID = NAM.TR_NAM_TKN_ID
+LEFT JOIN
+    metadata.TR_GRG_TaskRun_GraphRunGroupId GRG
+ON
+    GRG.TR_GRG_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.GRG_GraphRunGroupId kGRG
+ON
+    kGRG.GRG_ID = GRG.TR_GRG_GRG_ID
+LEFT JOIN
+    metadata.TR_BEG_TaskRun_StartedAt BEG
+ON
+    BEG.TR_BEG_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.TR_FIN_TaskRun_FinishedAt FIN
+ON
+    FIN.TR_FIN_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.TR_STA_TaskRun_Status STA
+ON
+    STA.TR_STA_TR_ID = TR.TR_ID
+LEFT JOIN
+    metadata.TRS_TaskRunStatus kSTA
+ON
+    kSTA.TRS_ID = STA.TR_STA_TRS_ID
+LEFT JOIN
+    metadata.TR_ERR_TaskRun_Error ERR
+ON
+    ERR.TR_ERR_TR_ID = TR.TR_ID
 $$
 ;
 -- Now perspective ----------------------------------------------------------------------------------------------------

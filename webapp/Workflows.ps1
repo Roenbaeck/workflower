@@ -81,7 +81,8 @@ function Save-Workflow {
     #>
     param([Parameter(Mandatory = $true)][string] $Connection,
           [Parameter(Mandatory = $true)][string] $Body,
-          $PreviousCfId = $null)
+          $PreviousCfId = $null,
+          [ValidateSet('Workflow', 'Environment')][string] $ConfigType = 'Workflow')
 
     try { $Body | ConvertFrom-Json | Out-Null }
     catch { return New-ApiError -Status 400 -Detail "Workflow JSON is invalid: $($_.Exception.Message)" }
@@ -97,7 +98,7 @@ function Save-Workflow {
 
     $previous = 'NULL'
     if ($PreviousCfId) { $previous = Assert-Id $PreviousCfId }
-    $result = Invoke-SnowSql -Sql "CALL metadata._ConfigurationUpsertFromStage('$runId', $previous);" -Connection $Connection
+    $result = Invoke-SnowSql -Sql "CALL metadata._ConfigurationUpsertFromStage('$runId', $previous, '$ConfigType');" -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
 
     $row = @($result.Json)[0]
@@ -147,12 +148,28 @@ function Install-Workflow {
     #>
     param([Parameter(Mandatory = $true)][string] $Connection,
           [Parameter(Mandatory = $true)] $CfId,
-          [string] $Template = 'CreateTaskGraph')
+          [string] $Template = 'CreateTaskGraph',
+          $EnvironmentCfId = $null)
 
     $id = Assert-Id $CfId
     $runId = Assert-RunId (New-RunId)
+    $env = 'NULL'
+    if ($EnvironmentCfId) { $env = Assert-Id $EnvironmentCfId }
 
-    $result = Invoke-SnowSql -Sql "CALL metadata._RenderToStage($id, '$Template', '$runId');" -Connection $Connection
+    # Validate first, so a cycle or a missing predecessor is reported as a list of problems
+    # rather than as a half-applied install.
+    $check = Invoke-SnowSql -Sql "CALL metadata._ValidateWorkflowById($id);" -Connection $Connection
+    if ($check.Success) {
+        $problems = ConvertFrom-JsonArray (Get-CallResult $check.Json)
+        if ($problems.Count -gt 0) {
+            return New-ApiResult -Status 400 -Body ([pscustomobject]@{
+                detail   = 'The workflow graph is not valid'
+                problems = $problems
+            })
+        }
+    }
+
+    $result = Invoke-SnowSql -Sql "CALL metadata._RenderToStage($id, '$Template', '$runId', $env);" -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
 
     $render = $null
@@ -234,6 +251,95 @@ function Import-TaskGraphs {
     $payload = $json | ConvertFrom-Json
 
     return New-ApiResult -Body ([pscustomobject]@{ run_id = $outRunId; graphs = $payload.export })
+}
+
+# Returns the array of problems, empty when the graph is sound.
+function Test-Workflow {
+    param([Parameter(Mandatory = $true)][string] $Connection,
+          [Parameter(Mandatory = $true)] $CfId)
+    $id = Assert-Id $CfId
+    $result = Invoke-SnowSql -Sql "CALL metadata._ValidateWorkflowById($id);" -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+    $problems = ConvertFrom-JsonArray (Get-CallResult $result.Json)
+    return New-ApiResult -Body ([pscustomobject]@{ cf_id = [int]$id; valid = ($problems.Count -eq 0); problems = $problems })
+}
+
+# --- Operating an installed workflow ---------------------------------------------------
+# Installing a graph is not running one. These report and change what the tasks are doing.
+
+function Get-WorkflowTaskStates {
+    param([Parameter(Mandatory = $true)][string] $Connection,
+          [Parameter(Mandatory = $true)] $CfId)
+    $id = Assert-Id $CfId
+    $result = Invoke-SnowSql -Sql "CALL metadata._WorkflowTaskStates($id);" -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+    $states = ConvertFrom-JsonArray (Get-CallResult $result.Json)
+    return New-ApiResult -Body ([pscustomobject]@{ cf_id = [int]$id; tasks = $states })
+}
+
+function Set-WorkflowState {
+    param([Parameter(Mandatory = $true)][string] $Connection,
+          [Parameter(Mandatory = $true)] $CfId,
+          [Parameter(Mandatory = $true)][ValidateSet('running', 'suspended')][string] $State)
+    $id = Assert-Id $CfId
+    $result = Invoke-SnowSql -Sql "CALL metadata._SetWorkflowState($id, '$State');" -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+    $row = @($result.Json)[0]
+    $payload = $null
+    if ($row) { $payload = ($row.psobject.Properties | Select-Object -First 1).Value | ConvertFrom-Json }
+    return New-ApiResult -Body $payload
+}
+
+function Start-WorkflowRun {
+    param([Parameter(Mandatory = $true)][string] $Connection,
+          [Parameter(Mandatory = $true)] $CfId)
+    $id = Assert-Id $CfId
+    $result = Invoke-SnowSql -Sql "CALL metadata._ExecuteWorkflow($id);" -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+    $row = @($result.Json)[0]
+    $payload = $null
+    if ($row) { $payload = ($row.psobject.Properties | Select-Object -First 1).Value | ConvertFrom-Json }
+    # EXECUTE TASK needs a privilege the role may not hold; the procedure reports that
+    # rather than failing, so surface it as a real status.
+    if ($payload -and -not $payload.executed) {
+        return New-ApiResult -Status 403 -Body ([pscustomobject]@{
+            detail = $payload.error; task = $payload.task
+        })
+    }
+    return New-ApiResult -Body $payload
+}
+
+function Get-Environments {
+    param([Parameter(Mandatory = $true)][string] $Connection)
+    $sql = @'
+SELECT CF_ID, CF_NAM_Configuration_Name AS NAME
+FROM metadata.lCF_Configuration
+WHERE CF_TYP_CFT_ConfigurationType = 'Environment'
+ORDER BY CF_NAM_Configuration_Name;
+'@
+    $result = Invoke-SnowSql -Sql $sql -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+    $rows = @()
+    foreach ($row in @($result.Json)) {
+        if ($null -eq $row) { continue }
+        $rows += [pscustomobject]@{ cf_id = $row.CF_ID; name = $row.NAME }
+    }
+    return New-ApiResult -Body $rows
+}
+
+function Get-Report {
+    # The model has always collected runs, lineage and row counts; nothing surfaced them.
+    param([Parameter(Mandatory = $true)][string] $Connection,
+          [Parameter(Mandatory = $true)][ValidateSet('TaskRuns', 'GraphRuns', 'Lineage', 'ContainerFlow', 'Installations')][string] $View,
+          [int] $Limit = 100)
+    if ($Limit -lt 1 -or $Limit -gt 1000) { $Limit = 100 }
+    $order = @{ TaskRuns = 'STARTED_AT'; GraphRuns = 'STARTED_AT'; Lineage = 'STARTED_AT'
+                ContainerFlow = 'LAST_SEEN'; Installations = 'RENDERED_AT' }[$View]
+    $result = Invoke-SnowSql -Sql "SELECT * FROM metadata.$View ORDER BY $order DESC NULLS LAST LIMIT $Limit;" -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+    $rows = @()
+    foreach ($row in @($result.Json)) { if ($null -ne $row) { $rows += $row } }
+    return New-ApiResult -Body $rows
 }
 
 function Get-ConnectionStatus {

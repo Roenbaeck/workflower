@@ -83,8 +83,13 @@ $$;
 -- Snowflake will not overload an existing procedure with a differing argument list, so the
 -- earlier single-argument form is dropped first.
 DROP PROCEDURE IF EXISTS metadata._ConfigurationUpsertFromStage(VARCHAR);
+DROP PROCEDURE IF EXISTS metadata._ConfigurationUpsertFromStage(VARCHAR, INT);
 
-CREATE OR REPLACE PROCEDURE metadata._ConfigurationUpsertFromStage(RUN_ID VARCHAR, PREVIOUS_CF_ID INT DEFAULT NULL)
+CREATE OR REPLACE PROCEDURE metadata._ConfigurationUpsertFromStage(
+    RUN_ID VARCHAR,
+    PREVIOUS_CF_ID INT DEFAULT NULL,
+    CONFIG_TYPE VARCHAR DEFAULT 'Workflow'
+)
 RETURNS VARIANT
 LANGUAGE SQL
 AS
@@ -108,10 +113,11 @@ BEGIN
     doc := TRY_PARSE_JSON(:content);
     IF (doc IS NULL) THEN RAISE bad_json; END IF;
 
-    wf_name := doc:WORKFLOW::VARCHAR;
+    -- A workflow names itself with WORKFLOW; an environment uses NAME.
+    wf_name := (SELECT COALESCE(:doc:NAME::VARCHAR, :doc:WORKFLOW::VARCHAR));
     IF (wf_name IS NULL OR wf_name = '') THEN RAISE no_name; END IF;
 
-    cf_id := (CALL metadata._ConfigurationUpsert(:wf_name, :content, 'Workflow'));
+    cf_id := (CALL metadata._ConfigurationUpsert(:wf_name, :content, :CONFIG_TYPE));
 
     -- A rename produced a new configuration; retire the one it replaced.
     IF (PREVIOUS_CF_ID IS NOT NULL AND :PREVIOUS_CF_ID <> :cf_id) THEN
@@ -181,6 +187,163 @@ $$;
 -- RENDER A CONFIGURATION TO THE STAGE
 -- ============================================================
 
+-- ============================================================
+-- VALIDATE A WORKFLOW GRAPH
+-- ============================================================
+-- The import path has always checked graph shape rigorously, while the authoring path
+-- checked nothing: a cycle or a duplicate name was only discovered when Snowflake rejected
+-- the DDL, by which point earlier statements had already applied. This runs the same
+-- checks before anything is rendered. Returns an array of problems; empty means valid.
+
+CREATE OR REPLACE PROCEDURE metadata._ValidateWorkflow(BINDINGS VARCHAR)
+RETURNS VARIANT
+LANGUAGE JAVASCRIPT
+AS
+$$
+var problems = [];
+function fail(message) { problems.push(message); }
+
+var doc;
+try { doc = JSON.parse(BINDINGS); }
+catch (e) { return ['Workflow JSON is not valid: ' + e.message]; }
+if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return ['Workflow JSON must be an object'];
+
+if (!doc.WORKFLOW) fail('WORKFLOW name is missing');
+
+var tasks = doc.TASKS;
+if (Object.prototype.toString.call(tasks) !== '[object Array]') return ['TASKS must be an array'];
+if (!tasks.length) return ['TASKS is empty; a workflow needs at least one task'];
+
+// ---- names -----------------------------------------------------------------
+var byName = {};
+for (var i = 0; i < tasks.length; i++) {
+    var name = tasks[i] && tasks[i].name;
+    if (!name) { fail('Task ' + (i + 1) + ' has no name'); continue; }
+    if (byName.hasOwnProperty(name)) {
+        // Duplicates collapse into one graph node in the editor and emit two
+        // CREATE OR REPLACE TASK statements for the same object.
+        fail('Duplicate task name: ' + name);
+    }
+    byName[name] = tasks[i];
+}
+
+// ---- predecessors ----------------------------------------------------------
+var predecessors = {};
+for (var n in byName) {
+    if (!byName.hasOwnProperty(n)) continue;
+    var after = byName[n].after;
+    predecessors[n] = [];
+    if (after === null || after === undefined) continue;
+    if (Object.prototype.toString.call(after) !== '[object Array]') {
+        fail('after must be an array on task ' + n);
+        continue;
+    }
+    for (var a = 0; a < after.length; a++) {
+        var parent = after[a] && after[a].name;
+        if (!parent) { fail('An after entry on task ' + n + ' has no name'); continue; }
+        if (!byName.hasOwnProperty(parent)) {
+            fail('Task ' + n + ' runs after ' + parent + ', which is not in this workflow');
+            continue;
+        }
+        if (parent === n) fail('Task ' + n + ' runs after itself');
+        predecessors[n].push(parent);
+    }
+}
+
+// ---- exactly one root ------------------------------------------------------
+// A Snowflake task graph has one root: the only task carrying the schedule.
+var roots = [];
+for (var r in predecessors) {
+    if (predecessors.hasOwnProperty(r) && predecessors[r].length === 0) roots.push(r);
+}
+if (roots.length === 0) fail('No root task: every task runs after another, which is a cycle');
+if (roots.length > 1) fail('More than one root task: ' + roots.sort().join(', ') + '. A task graph has exactly one root.');
+
+for (var f in byName) {
+    if (!byName.hasOwnProperty(f)) continue;
+    var declared = byName[f].is_root === true;
+    var actual = predecessors[f] && predecessors[f].length === 0;
+    if (declared && !actual) fail('Task ' + f + ' is marked is_root but runs after another task');
+    if (!declared && actual && roots.length === 1) fail('Task ' + f + ' is the root but is not marked is_root');
+    if (byName[f].schedule && !declared) fail('Task ' + f + ' has a schedule but is not the root task');
+}
+
+// ---- cycles ----------------------------------------------------------------
+var pending = {};
+for (var p in predecessors) if (predecessors.hasOwnProperty(p)) pending[p] = predecessors[p].slice();
+var progressed = true;
+while (progressed) {
+    progressed = false;
+    for (var q in pending) {
+        if (!pending.hasOwnProperty(q)) continue;
+        if (pending[q].length === 0) {
+            delete pending[q];
+            for (var s in pending) {
+                if (!pending.hasOwnProperty(s)) continue;
+                pending[s] = pending[s].filter(function (x) { return x !== q; });
+            }
+            progressed = true;
+        }
+    }
+}
+var stuck = Object.keys(pending).sort();
+if (stuck.length) fail('Cycle between tasks: ' + stuck.join(', '));
+
+// ---- steps -----------------------------------------------------------------
+var REQUIRED = {
+    proc: ['call'],
+    sql: ['sql'],
+    lineage: ['source', 'target'],
+    rows: [],
+    return_value: ['message']
+};
+for (var t in byName) {
+    if (!byName.hasOwnProperty(t)) continue;
+    if (byName[t].native) continue;  // a native task carries its own DDL, not steps
+    var steps = byName[t].steps;
+    if (steps === undefined || steps === null) continue;
+    if (Object.prototype.toString.call(steps) !== '[object Array]') { fail('steps must be an array on task ' + t); continue; }
+    for (var si = 0; si < steps.length; si++) {
+        var step = steps[si], where = 'step ' + (si + 1) + ' of task ' + t;
+        if (!step || !step.type) { fail(where + ' has no type'); continue; }
+        if (!REQUIRED.hasOwnProperty(step.type)) { fail(where + ' has unknown type ' + step.type); continue; }
+        var required = REQUIRED[step.type];
+        for (var ri = 0; ri < required.length; ri++) {
+            if (!step[required[ri]]) fail(where + ' (' + step.type + ') is missing ' + required[ri]);
+        }
+        if (step.type === 'sql' && (!step.lineage || !step.lineage.source || !step.lineage.target)) {
+            fail(where + ' (sql) is missing lineage.source or lineage.target');
+        }
+    }
+}
+
+return problems;
+$$;
+
+
+-- Validate a stored configuration. The editor calls this before installing so the problems
+-- can be listed, rather than discovering them when Snowflake rejects the DDL.
+CREATE OR REPLACE PROCEDURE metadata._ValidateWorkflowById(CF_ID INT)
+RETURNS VARIANT
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    config_text VARCHAR;
+    problems VARIANT;
+    no_config EXCEPTION (-20006, 'Configuration not found');
+BEGIN
+    SELECT CF_CNT_Configuration_Content INTO :config_text
+    FROM metadata.lCF_Configuration
+    WHERE CF_ID = :CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+    IF (config_text IS NULL) THEN RAISE no_config; END IF;
+
+    problems := (CALL metadata._ValidateWorkflow(:config_text));
+    RETURN problems;
+END;
+$$;
+
+
 -- The core. Both entry points below funnel through this so the native-task guard and the
 -- unload options live in exactly one place.
 CREATE OR REPLACE PROCEDURE metadata._RenderTextToStage(BINDINGS VARCHAR, TEMPLATE_NAME VARCHAR, RUN_ID VARCHAR)
@@ -194,13 +357,22 @@ DECLARE
     missing_native INT;
     il_id INT;
     tp_id INT;
+    problems VARIANT;
     now_ts TIMESTAMP_TZ := SYSDATE();
     bad_run_id EXCEPTION (-20001, 'Run id must be a GUID');
+    invalid_workflow EXCEPTION (-20011, 'The workflow graph is not valid');
     no_template EXCEPTION (-20005, 'Template not found');
     render_failed EXCEPTION (-20007, 'Template rendering produced no SQL');
     stale_template EXCEPTION (-20008, 'The deployed template does not support native tasks. Deploy the updated CreateTaskGraph template before installing this import.');
 BEGIN
     IF (NOT metadata._IsRunId(:RUN_ID)) THEN RAISE bad_run_id; END IF;
+
+    -- Refuse to render a graph Snowflake would reject halfway through applying it. A
+    -- declared exception carries a fixed message, so the problems themselves come from
+    -- _ValidateWorkflowById, which the client calls before installing; this is the
+    -- backstop for anything that reaches here another way.
+    problems := (CALL metadata._ValidateWorkflow(:BINDINGS));
+    IF (ARRAY_SIZE(:problems) > 0) THEN RAISE invalid_workflow; END IF;
 
     SELECT TP_CNT_Template_Content INTO :template_text
     FROM metadata.lTP_Template WHERE TP_NAM_Template_Name = :TEMPLATE_NAME;
@@ -258,25 +430,61 @@ END;
 $$;
 
 -- Render a stored configuration. Used by the editor's install.
-CREATE OR REPLACE PROCEDURE metadata._RenderToStage(CF_ID INT, TEMPLATE_NAME VARCHAR, RUN_ID VARCHAR)
+--
+-- ENV_CF_ID names an Environment configuration whose keys are merged over the workflow's
+-- own, so the same definition installs into dev and production without being edited. The
+-- environment is addressed by id rather than name, like everything else, so no user text
+-- reaches SQL.
+DROP PROCEDURE IF EXISTS metadata._RenderToStage(INT, VARCHAR, VARCHAR);
+
+CREATE OR REPLACE PROCEDURE metadata._RenderToStage(CF_ID INT, TEMPLATE_NAME VARCHAR, RUN_ID VARCHAR, ENV_CF_ID INT DEFAULT NULL)
 RETURNS VARIANT
 LANGUAGE SQL
 AS
 $$
 DECLARE
     config_text VARCHAR;
+    env_text VARCHAR;
+    merged VARIANT;
     bindings VARCHAR;
     result VARIANT;
     new_il_id INT;
     no_config EXCEPTION (-20006, 'Configuration not found');
+    no_environment EXCEPTION (-20012, 'Environment configuration not found');
 BEGIN
     SELECT CF_CNT_Configuration_Content INTO :config_text
     FROM metadata.lCF_Configuration
     WHERE CF_ID = :CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
     IF (config_text IS NULL) THEN RAISE no_config; END IF;
 
+    merged := (SELECT PARSE_JSON(:config_text));
+
+    IF (ENV_CF_ID IS NOT NULL) THEN
+        SELECT CF_CNT_Configuration_Content INTO :env_text
+        FROM metadata.lCF_Configuration
+        WHERE CF_ID = :ENV_CF_ID AND CF_TYP_CFT_ConfigurationType = 'Environment';
+        IF (env_text IS NULL) THEN RAISE no_environment; END IF;
+
+        -- Environment keys win. Snowflake has no object merge, so flatten both and keep
+        -- the higher-priority row per key. The environment is also exposed whole as ENV,
+        -- so a template can reach values that are not workflow-level fields.
+        merged := (
+            SELECT OBJECT_AGG(key, value)
+            FROM (
+                SELECT key, value
+                FROM (
+                    SELECT key, value, 1 AS priority FROM TABLE(FLATTEN(input => PARSE_JSON(:config_text)))
+                    UNION ALL
+                    SELECT key, value, 2            FROM TABLE(FLATTEN(input => PARSE_JSON(:env_text)))
+                )
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY key ORDER BY priority DESC) = 1
+            )
+        );
+        merged := (SELECT OBJECT_INSERT(:merged, 'ENV', PARSE_JSON(:env_text), TRUE));
+    END IF;
+
     -- CF_ID is a render-time binding, not part of the stored document.
-    bindings := (SELECT TO_JSON(OBJECT_INSERT(PARSE_JSON(:config_text), 'CF_ID', :CF_ID, TRUE)));
+    bindings := (SELECT TO_JSON(OBJECT_INSERT(:merged, 'CF_ID', :CF_ID, TRUE)));
 
     result := (CALL metadata._RenderTextToStage(:bindings, :TEMPLATE_NAME, :RUN_ID));
 

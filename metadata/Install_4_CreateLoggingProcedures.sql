@@ -63,6 +63,12 @@ BEGIN
     INSERT INTO metadata.TR_GRG_TaskRun_GraphRunGroupId (TR_GRG_TR_ID, TR_GRG_GRG_ID)
     VALUES (:tr_id, :grg_id);
 
+    -- When it started. The outcome is recorded separately by _TaskRunFinished or
+    -- _TaskRunFailed; a run with a start and no status is still running or died without
+    -- being able to report.
+    INSERT INTO metadata.TR_BEG_TaskRun_StartedAt (TR_BEG_TR_ID, TR_BEG_TaskRun_StartedAt)
+    VALUES (:tr_id, SYSDATE());
+
     -- Link to configuration if provided
     IF (:CONFIG_NAME IS NOT NULL) THEN
         SELECT cf.CF_ID INTO :cf_id
@@ -79,6 +85,67 @@ BEGIN
     END IF;
 
     RETURN :tr_id;
+END;
+$$;
+
+-- ============================================================
+-- TASK RUN COMPLETION
+-- ============================================================
+-- A task run used to record only that it started, so a graph could fail every night and
+-- the metadata would look healthy. These close the record. They are called from the
+-- generated task body, including from its exception handler, so they must never raise:
+-- losing the log must not also mask the error that caused it.
+
+CREATE OR REPLACE PROCEDURE metadata._TaskRunFinished(
+    TR_ID   INT,
+    STATUS  VARCHAR DEFAULT 'Succeeded',
+    ERROR   VARCHAR DEFAULT NULL
+)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    trs_id TINYINT;
+BEGIN
+    IF (TR_ID IS NULL) THEN RETURN 'skipped'; END IF;
+
+    SELECT TRS_ID INTO :trs_id
+    FROM metadata.TRS_TaskRunStatus WHERE TRS_TaskRunStatus = :STATUS;
+    IF (trs_id IS NULL) THEN RETURN 'unknown status'; END IF;
+
+    INSERT INTO metadata.TR_FIN_TaskRun_FinishedAt (TR_FIN_TR_ID, TR_FIN_TaskRun_FinishedAt)
+    VALUES (:TR_ID, SYSDATE());
+
+    INSERT INTO metadata.TR_STA_TaskRun_Status (TR_STA_TR_ID, TR_STA_TRS_ID)
+    VALUES (:TR_ID, :trs_id);
+
+    IF (ERROR IS NOT NULL) THEN
+        INSERT INTO metadata.TR_ERR_TaskRun_Error (TR_ERR_TR_ID, TR_ERR_TaskRun_Error)
+        VALUES (:TR_ID, LEFT(:ERROR, 2000));
+    END IF;
+
+    RETURN :STATUS;
+EXCEPTION
+    WHEN OTHER THEN
+        -- Never let logging failure replace the real outcome.
+        RETURN 'logging failed';
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE metadata._TaskRunFailed(TR_ID INT, ERROR VARCHAR)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    result VARCHAR;
+BEGIN
+    result := (CALL metadata._TaskRunFinished(:TR_ID, 'Failed', :ERROR));
+    RETURN result;
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'logging failed';
 END;
 $$;
 
