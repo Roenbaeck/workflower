@@ -106,6 +106,32 @@ END;
 $$;
 
 -- ============================================================
+-- DELETE A CONFIGURATION BY ID
+-- ============================================================
+-- The client addresses workflows by CF_ID so that a workflow name never has to be
+-- interpolated into SQL. _ConfigurationDelete takes a name, so the lookup happens here.
+
+CREATE OR REPLACE PROCEDURE metadata._ConfigurationDeleteById(CF_ID INT)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    wf_name VARCHAR;
+    status VARCHAR;
+    no_config EXCEPTION (-20006, 'Configuration not found');
+BEGIN
+    SELECT CF_NAM_Configuration_Name INTO :wf_name
+    FROM metadata.lCF_Configuration
+    WHERE CF_ID = :CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+    IF (wf_name IS NULL) THEN RAISE no_config; END IF;
+
+    status := (CALL metadata._ConfigurationDelete(:wf_name));
+    RETURN status;
+END;
+$$;
+
+-- ============================================================
 -- UPSERT A TEMPLATE FROM A STAGED FILE
 -- ============================================================
 

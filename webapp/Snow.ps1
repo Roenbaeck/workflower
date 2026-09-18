@@ -69,6 +69,10 @@ function Invoke-SnowSql {
     )
     $file = New-TempFile -Content $Sql
     try {
+        # The CLI frames errors on stderr. With 2>&1 those arrive as error records, and a
+        # caller running with $ErrorActionPreference = 'Stop' would throw on the first
+        # border line instead of returning the failure. Keep it local to this call.
+        $ErrorActionPreference = 'Continue'
         $output = & (Get-SnowExe) sql -c $Connection --enable-templating NONE --format JSON -f $file 2>&1
         $exitCode = $LASTEXITCODE
         $text = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
@@ -107,6 +111,7 @@ function Copy-ToStage {
         [Parameter(Mandatory = $true)][string] $StagePath,
         [Parameter(Mandatory = $true)][string] $Connection
     )
+    $ErrorActionPreference = 'Continue'
     # --no-auto-compress: EXECUTE IMMEDIATE FROM requires uncompressed UTF-8, and the raw
     # file format reads the bytes back verbatim.
     $output = & (Get-SnowExe) stage copy $LocalPath $StagePath --no-auto-compress --overwrite -c $Connection --format JSON 2>&1
@@ -124,6 +129,7 @@ function Copy-FromStage {
         [Parameter(Mandatory = $true)][string] $LocalDirectory,
         [Parameter(Mandatory = $true)][string] $Connection
     )
+    $ErrorActionPreference = 'Continue'
     $output = & (Get-SnowExe) stage copy $StagePath $LocalDirectory -c $Connection --format JSON 2>&1
     $exitCode = $LASTEXITCODE
     $text = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
