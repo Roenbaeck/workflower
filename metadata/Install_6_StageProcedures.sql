@@ -218,10 +218,22 @@ var tasks = doc.TASKS;
 // empty WAREHOUSE renders as "WAREHOUSE = " and fails with a bare syntax error, so name it
 // here instead. The value may come from an environment, so validate against the merge.
 if (Object.prototype.toString.call(tasks) === '[object Array]') {
-    var needsWarehouse = false;
-    for (var w = 0; w < tasks.length; w++) if (tasks[w] && !tasks[w].native) needsWarehouse = true;
-    if (needsWarehouse && !doc.WAREHOUSE) {
-        fail('WAREHOUSE is not set. Set it on the workflow or supply it from an environment.');
+    var needsCompute = false;
+    for (var w = 0; w < tasks.length; w++) if (tasks[w] && !tasks[w].native) needsCompute = true;
+    if (needsCompute && !doc.SERVERLESS && !doc.WAREHOUSE) {
+        fail('WAREHOUSE is not set. Set it on the workflow, supply it from an environment, or set SERVERLESS.');
+    }
+    // A serverless task names a size instead of a warehouse.
+    var SIZES = ['XSMALL','SMALL','MEDIUM','LARGE','XLARGE','XXLARGE','XXXLARGE','X4LARGE','X5LARGE','X6LARGE'];
+    if (doc.SERVERLESS) {
+        if (!doc.TASK_SIZE) {
+            fail('SERVERLESS needs TASK_SIZE, the initial warehouse size Snowflake starts from.');
+        } else if (SIZES.indexOf(String(doc.TASK_SIZE).toUpperCase().replace(/[-_ ]/g, '')) < 0) {
+            fail('TASK_SIZE is not a Snowflake warehouse size: ' + doc.TASK_SIZE);
+        }
+        if (doc.WAREHOUSE) {
+            fail('SERVERLESS and WAREHOUSE are mutually exclusive; a serverless task has no warehouse.');
+        }
     }
 }
 if (Object.prototype.toString.call(tasks) !== '[object Array]') return ['TASKS must be an array'];
@@ -279,6 +291,16 @@ for (var f in byName) {
     if (declared && !actual) fail('Task ' + f + ' is marked is_root but runs after another task');
     if (!declared && actual && roots.length === 1) fail('Task ' + f + ' is the root but is not marked is_root');
     if (byName[f].schedule && !declared) fail('Task ' + f + ' has a schedule but is not the root task');
+
+    // WHEN is allowed on any task, but only one of the two ways of expressing it.
+    if (byName[f].condition && byName[f].stream) {
+        fail('Task ' + f + ' sets both condition and stream; a task has one WHEN clause. Use condition for anything a stream check cannot express.');
+    }
+    // The stream name becomes a quoted literal inside SYSTEM$STREAM_HAS_DATA, so it must
+    // look like an object name rather than an expression.
+    if (byName[f].stream && !/^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){0,2}$/.test(String(byName[f].stream))) {
+        fail('Task ' + f + ' has a stream that is not a valid object name: ' + byName[f].stream + '. Use condition for a full expression.');
+    }
 }
 
 // ---- cycles ----------------------------------------------------------------

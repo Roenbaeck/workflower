@@ -41,6 +41,13 @@ Originally a code review from 2026-09-17. Updated 2026-09-18 during the PowerShe
   `STATUS` column that `test_all.ps1` checks. The other five files render a template and
   print the output for a human to read, so a regression in them is invisible to CI.
 
+## Needs an account grant
+
+- [ ] **`EXECUTE MANAGED TASK` is not granted**, so serverless tasks can be authored,
+  validated and created but not run. `ACCOUNTADMIN` runs
+  `GRANT EXECUTE MANAGED TASK ON ACCOUNT TO ROLE SYSADMIN;`, the same shape as the
+  `EXECUTE TASK` grant.
+
 ## Reported upstream
 
 - [ ] **The Anchor Modeler generates an invalid rewinder for a knotted historized

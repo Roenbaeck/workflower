@@ -113,7 +113,14 @@ $$;
 
 -- Task (calls the procedure)
 CREATE OR REPLACE TASK $task.name$
+$- Serverless tasks name a size instead of a warehouse. They are billed per second with no
+$- 60 second minimum and no idle time, which is usually cheaper for short or infrequent
+$- work. They require the EXECUTE MANAGED TASK privilege.
+$/ if SERVERLESS
+    USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = $'TASK_SIZE'$
+$/ else
     WAREHOUSE = $WAREHOUSE$
+$/ endif
     USER_TASK_TIMEOUT_MS = $TASK_TIMEOUT$
 $/ if task.is_root == true
     SUSPEND_TASK_AFTER_NUM_FAILURES = $MAX_FAILURES$
@@ -127,6 +134,17 @@ $/ if task.after
 $/ endif
 $/ if task.is_root == true
     CONFIG = $'CONFIG'$
+$/ endif
+$- WHEN is evaluated in the cloud services layer. On a root task a false condition means
+$- the warehouse is never resumed and the run costs nothing, which makes it the cheapest
+$- way to schedule a graph that usually has nothing to do. It must come after AFTER and
+$- immediately before AS. A "stream" is shorthand for the common case; "condition" is the
+$- raw expression for anything else.
+$/ if task.condition
+    WHEN $task.condition$
+$/ endif
+$/ if task.stream
+    WHEN SYSTEM$STREAM_HAS_DATA($'task.stream'$)
 $/ endif
 $- The body is a scripting block, not a bare CALL, because SYSTEM$SET_RETURN_VALUE is
 $- rejected inside a SQL stored procedure and has to be called here. EXECUTE IMMEDIATE
