@@ -1965,27 +1965,28 @@ function zoomGraph(e) {
   if (!svgEl) return;
   e.preventDefault();
   let deltas = normalizeWheelDeltas(e);
-  if (!e.ctrlKey) {
+
+  // Shift is the usual "scroll sideways" modifier, so it keeps panning. Deltas arrive in
+  // screen pixels and the view is in graph units, so they have to be scaled by the current
+  // zoom; adding them raw made a small scroll leap across the graph when zoomed in.
+  if (e.shiftKey && !e.ctrlKey) {
     let viewBox = currentViewBox();
+    let scale = viewBox.width / Math.max(svgEl.clientWidth, 1);
     setViewBox(
-      viewBox.x + deltas.x,
-      viewBox.y + deltas.y,
+      viewBox.x + (deltas.x || deltas.y) * scale,
+      viewBox.y,
       viewBox.width,
       viewBox.height
     );
     return;
   }
+
+  // Plain wheel zooms, anchored under the pointer. Ctrl arrives from a trackpad pinch and
+  // means the same thing here; it still has to be swallowed so the browser does not zoom
+  // the whole page instead.
   let zoomDelta = deltas.y || deltas.x;
   if (!zoomDelta) return;
-  let factor = Math.exp(zoomDelta * 0.0025);
-  let viewBox = currentViewBox();
-  let svgPoint = screenToSVG(e.clientX, e.clientY);
-  setViewBox(
-    viewBox.x + (1 - factor) * (svgPoint.x - viewBox.x),
-    viewBox.y + (1 - factor) * (svgPoint.y - viewBox.y),
-    viewBox.width * factor,
-    viewBox.height * factor
-  );
+  zoomViewBoxAt(Math.exp(zoomDelta * 0.0025), e.clientX, e.clientY);
 }
 
 function relayoutGraph() {
@@ -2024,11 +2025,31 @@ function resetViewport() {
   setViewBox(bounds.x, bounds.y, bounds.width, bounds.height);
 }
 
-function zoomGraphBy(factor) {
+const MIN_VIEW_WIDTH = 100;
+const MAX_VIEW_WIDTH = 10000;
+
+// Zoom so the graph point under the given screen position stays put. Without a position,
+// zoom on the middle of the view, which is what the toolbar buttons want.
+function zoomViewBoxAt(factor, clientX, clientY) {
   let viewBox = currentViewBox();
-  let width = Math.max(100, Math.min(10000, viewBox.width * factor));
-  let height = viewBox.height * width / viewBox.width;
-  setViewBox(viewBox.x + (viewBox.width - width) / 2, viewBox.y + (viewBox.height - height) / 2, width, height);
+  let width = Math.max(MIN_VIEW_WIDTH, Math.min(MAX_VIEW_WIDTH, viewBox.width * factor));
+  // Clamping can cut the factor short; derive the one actually applied so the anchor stays
+  // exact at the zoom limits instead of drifting.
+  let applied = width / viewBox.width;
+  let height = viewBox.height * applied;
+  let anchor = (clientX === undefined || clientY === undefined)
+    ? { x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 }
+    : screenToSVG(clientX, clientY);
+  setViewBox(
+    anchor.x - (anchor.x - viewBox.x) * applied,
+    anchor.y - (anchor.y - viewBox.y) * applied,
+    width,
+    height
+  );
+}
+
+function zoomGraphBy(factor) {
+  zoomViewBoxAt(factor);
 }
 
 function beginGraphTouch(event) {

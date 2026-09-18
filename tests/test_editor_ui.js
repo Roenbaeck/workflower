@@ -152,6 +152,51 @@ test('the minimap always shows the viewport, however far it is from the graph', 
   assert.ok(drawn.frame[0] <= graph.x && drawn.frame[1] <= graph.y, 'graph dropped out of the frame');
 });
 
+// Scrolling used to pan, and only Ctrl+scroll zoomed. Now the wheel zooms on the point
+// under the pointer, which only feels right if that point does not drift.
+function zoomWith(viewBox, anchor, factor) {
+  let applied = null;
+  const context = vm.createContext({
+    currentViewBox: () => viewBox,
+    screenToSVG: () => anchor,
+    setViewBox: (x, y, width, height) => { applied = { x, y, width, height }; },
+  });
+  vm.runInContext(sourceBetween('const MIN_VIEW_WIDTH', 'function zoomGraphBy('), context);
+  context.zoomViewBoxAt(factor, 10, 10);
+  return applied;
+}
+
+test('wheel zoom keeps the point under the pointer still', () => {
+  const viewBox = { x: 0, y: 0, width: 800, height: 450 };
+  const anchor = { x: 200, y: 100 };
+  // Where the anchor sits in the view, as a fraction. Zoom must not move it.
+  const before = { x: (anchor.x - viewBox.x) / viewBox.width, y: (anchor.y - viewBox.y) / viewBox.height };
+
+  for (const factor of [0.5, 0.9, 1.1, 2]) {
+    const next = zoomWith(viewBox, anchor, factor);
+    const after = { x: (anchor.x - next.x) / next.width, y: (anchor.y - next.y) / next.height };
+    assert.ok(Math.abs(after.x - before.x) < 1e-9, 'anchor drifted horizontally at factor ' + factor);
+    assert.ok(Math.abs(after.y - before.y) < 1e-9, 'anchor drifted vertically at factor ' + factor);
+    assert.ok(Math.abs(next.width / next.height - viewBox.width / viewBox.height) < 1e-9, 'aspect changed');
+  }
+});
+
+test('wheel zoom clamps, and still holds the anchor at the limit', () => {
+  const viewBox = { x: 0, y: 0, width: 800, height: 450 };
+  const anchor = { x: 200, y: 100 };
+  const before = { x: (anchor.x - viewBox.x) / viewBox.width, y: (anchor.y - viewBox.y) / viewBox.height };
+
+  // Far past both limits: the width stops, and the anchor must stop with it rather than
+  // drifting because the requested factor was never applied.
+  for (const [factor, expected] of [[0.00001, 100], [1000, 10000]]) {
+    const next = zoomWith(viewBox, anchor, factor);
+    assert.equal(Math.round(next.width), expected);
+    const after = { x: (anchor.x - next.x) / next.width, y: (anchor.y - next.y) / next.height };
+    assert.ok(Math.abs(after.x - before.x) < 1e-9, 'anchor drifted at the zoom limit');
+    assert.ok(Math.abs(after.y - before.y) < 1e-9, 'anchor drifted at the zoom limit');
+  }
+});
+
 test('the split handle sits between the panes and is reachable without a mouse', () => {
   // Grid column order follows DOM order, so the handle must fall between them.
   assert.ok(markup.indexOf('class="canvas-pane"') < markup.indexOf('id="split-handle"'));

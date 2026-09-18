@@ -196,6 +196,9 @@ The divider between the task graph and the inspector is draggable — double-cli
 or focus it and use the arrow keys (`Shift` for larger steps, `Home` to reset). The width is
 remembered per browser, and the graph always keeps a usable strip however far you drag.
 
+In the graph, the scroll wheel zooms on the point under the pointer, a trackpad pinch does
+the same, `Shift` with the wheel scrolls sideways, and dragging the background pans.
+
 ### 4. Render or deploy workflow SQL from JSON
 
 ```
