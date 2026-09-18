@@ -73,7 +73,14 @@ $$;
 -- UPSERT A CONFIGURATION FROM A STAGED FILE
 -- ============================================================
 
-CREATE OR REPLACE PROCEDURE metadata._ConfigurationUpsertFromStage(RUN_ID VARCHAR)
+-- PREVIOUS_CF_ID makes a rename atomic. The old client saved under the new name and then
+-- issued a separate delete, so a failure between the two left two copies behind while the
+-- UI reported success.
+-- Snowflake will not overload an existing procedure with a differing argument list, so the
+-- earlier single-argument form is dropped first.
+DROP PROCEDURE IF EXISTS metadata._ConfigurationUpsertFromStage(VARCHAR);
+
+CREATE OR REPLACE PROCEDURE metadata._ConfigurationUpsertFromStage(RUN_ID VARCHAR, PREVIOUS_CF_ID INT DEFAULT NULL)
 RETURNS VARIANT
 LANGUAGE SQL
 AS
@@ -83,6 +90,7 @@ DECLARE
     doc VARIANT;
     wf_name VARCHAR;
     cf_id INT;
+    previous_name VARCHAR;
     bad_run_id EXCEPTION (-20001, 'Run id must be a GUID');
     bad_json EXCEPTION (-20002, 'Staged file is not valid JSON');
     no_name EXCEPTION (-20003, 'Workflow JSON has no WORKFLOW name');
@@ -100,6 +108,16 @@ BEGIN
     IF (wf_name IS NULL OR wf_name = '') THEN RAISE no_name; END IF;
 
     cf_id := (CALL metadata._ConfigurationUpsert(:wf_name, :content, 'Workflow'));
+
+    -- A rename produced a new configuration; retire the one it replaced.
+    IF (PREVIOUS_CF_ID IS NOT NULL AND :PREVIOUS_CF_ID <> :cf_id) THEN
+        SELECT CF_NAM_Configuration_Name INTO :previous_name
+        FROM metadata.lCF_Configuration
+        WHERE CF_ID = :PREVIOUS_CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+        IF (previous_name IS NOT NULL) THEN
+            CALL metadata._ConfigurationDelete(:previous_name);
+        END IF;
+    END IF;
 
     RETURN OBJECT_CONSTRUCT('cf_id', :cf_id, 'name', :wf_name);
 END;

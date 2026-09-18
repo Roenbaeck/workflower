@@ -80,7 +80,8 @@ function Save-Workflow {
         truncate the document.
     #>
     param([Parameter(Mandatory = $true)][string] $Connection,
-          [Parameter(Mandatory = $true)][string] $Body)
+          [Parameter(Mandatory = $true)][string] $Body,
+          $PreviousCfId = $null)
 
     try { $Body | ConvertFrom-Json | Out-Null }
     catch { return New-ApiError -Status 400 -Detail "Workflow JSON is invalid: $($_.Exception.Message)" }
@@ -94,7 +95,9 @@ function Save-Workflow {
     catch { return New-ApiError -Status 502 -Detail $_.Exception.Message }
     finally { Remove-Item $path -Force -ErrorAction SilentlyContinue }
 
-    $result = Invoke-SnowSql -Sql "CALL metadata._ConfigurationUpsertFromStage('$runId');" -Connection $Connection
+    $previous = 'NULL'
+    if ($PreviousCfId) { $previous = Assert-Id $PreviousCfId }
+    $result = Invoke-SnowSql -Sql "CALL metadata._ConfigurationUpsertFromStage('$runId', $previous);" -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
 
     $row = @($result.Json)[0]

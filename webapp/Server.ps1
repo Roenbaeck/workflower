@@ -86,7 +86,9 @@ function Invoke-Route {
         return Get-WorkflowList -Connection $Connection
     }
     if ($Path -eq '/api/workflows' -and $Method -eq 'PUT') {
-        return Save-Workflow -Connection $Connection -Body (Read-RequestBody $Context)
+        # ?previous=<cf_id> retires the configuration this save renames away from.
+        $previous = $Context.Request.QueryString['previous']
+        return Save-Workflow -Connection $Connection -Body (Read-RequestBody $Context) -PreviousCfId $previous
     }
     if ($Path -eq '/api/connection/status' -and $Method -eq 'GET') {
         return Get-ConnectionStatus -Connection $Connection

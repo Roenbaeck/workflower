@@ -30,11 +30,7 @@
     </div>
     <details id="connection-panel" class="connection-panel">
       <summary>Snowflake connection</summary>
-      <p id="connection-status" role="status">Connect before reading or saving workflows.</p>
-      <label for="mfa-passcode">One-time code (if required)</label>
-      <input id="mfa-passcode" type="password" autocomplete="one-time-code" maxlength="256" aria-describedby="mfa-help"/>
-      <p id="mfa-help">Leave blank for browser sign-in or push approval.</p>
-      <button id="btn-connect-snowflake" type="button" onclick="reconnectSnowflake()">Connect / reconnect</button>
+      <p id="connection-status" role="status">Checking…</p>
     </details>
     <div class="library-heading">Saved workflows</div>
     <label class="sr-only" for="workflow-search">Find a workflow</label>
@@ -509,6 +505,8 @@ function serializeWorkflow() {
     delete task._x;
     delete task._y;
     delete task._fixed;
+    // Whether a step is expanded in the inspector is UI state, not workflow definition.
+    (task.steps || []).forEach((step) => { delete step._open; });
     if (Array.isArray(task.after) && task.after.length === 0) {
       task.after = null;
     }
@@ -782,35 +780,21 @@ LayoutEngine.layout = LayoutEngine.simpleLayout;
 DrawingEngine.init();
 
 // --- API + storage helpers ---
-function requireSnowflakeConnection(message) {
-  let panel = getId('connection-panel');
+// There is no session to establish. The server shells out to the Snowflake CLI, which
+// authenticates per invocation from the named profile, so this panel only reports who the
+// server is acting as.
+async function refreshConnectionStatus() {
   let status = getId('connection-status');
-  if (panel) panel.open = true;
-  if (status) status.textContent = message;
-}
-
-async function reconnectSnowflake() {
-  let button = getId('btn-connect-snowflake');
-  let input = getId('mfa-passcode');
-  if (button.disabled || installing) return;
-  button.disabled = true;
-  let passcode = input.value.trim();
-  input.value = '';
-  requireSnowflakeConnection('Connecting… Complete browser sign-in or approve the MFA request.');
+  if (!status) return;
   try {
-    await api('/api/connection/reconnect', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passcode: passcode || null }),
-    });
-    requireSnowflakeConnection('Connected. You can read, save, or install workflows.');
-    showStatus('Connected to Snowflake', 'success');
-    // Refresh only the library; never replay a failed action or replace the draft.
-    await loadWorkflows(false, true);
+    let info = await window.fetch('/api/connection/status');
+    let body = await info.json();
+    if (!info.ok) throw new Error(body && body.detail ? body.detail : 'Snowflake is unreachable');
+    status.textContent = body.user + ' as ' + body.role + ' on ' + body.database + ' (' + body.warehouse + ')';
   } catch (e) {
-    requireSnowflakeConnection(e.message || 'Connection failed. Try connecting again.');
-  } finally {
-    passcode = '';
-    button.disabled = false;
+    status.textContent = e.message || 'Snowflake is unreachable. Check the connection profile.';
+    let panel = getId('connection-panel');
+    if (panel) panel.open = true;
   }
 }
 
@@ -826,14 +810,16 @@ async function api(url, opts) {
   if (!response.ok) {
     let text = await response.text();
     let message = text || ('HTTP ' + response.status);
+    let payload = null;
     try {
-      let payload = JSON.parse(text);
-      if (payload && payload.code === 'connection_required') requireSnowflakeConnection(payload.detail);
+      payload = JSON.parse(text);
       message = payload && payload.detail ? payload.detail : JSON.stringify(payload);
     } catch (jsonError) {
       // Keep the text response; the response body can only be consumed once.
     }
     let error = new Error(message);
+    // Carry the structured body so callers can use fields like the failing line.
+    error.payload = payload;
     showStatus(message, 'error');
     throw error;
   }
@@ -869,7 +855,11 @@ async function loadWorkflows(restoreDraft, preserveSelection = false) {
 }
 
 async function loadWorkflow(name) {
-  let workflow = await api('/api/workflows/' + encodeURIComponent(name));
+  // Workflows are addressed by CF_ID so that a name never reaches SQL. The library
+  // listing carries the id; a name that is not in it cannot be loaded.
+  let entry = readStoredWorkflow(name);
+  if (!entry || entry.cf_id == null) throw new Error('Workflow not found in the library');
+  let workflow = await api('/api/workflows/' + encodeURIComponent(entry.cf_id));
   let parsed = JSON.parse(workflow.content);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Stored workflow JSON must be an object');
@@ -895,9 +885,10 @@ async function readFromSnowflake() {
   button.textContent = 'Reading...';
   try {
     let savedWorkflows = await api('/api/workflows');
+    // Assign before loading: loadWorkflow resolves the CF_ID from this list.
+    workflows = savedWorkflows;
     let workflow = savedWorkflows.find((saved) => saved.name === current) || savedWorkflows[0];
     if (workflow) await loadWorkflow(workflow.name);
-    workflows = savedWorkflows;
     renderSidebar();
     showStatus(workflow ? 'Read from Snowflake' : 'No saved workflows in Snowflake', 'success');
   } catch (e) {
@@ -918,15 +909,16 @@ async function saveWorkflow() {
   data.WORKFLOW = nextName;
   updatePositions(false);
   try {
-    let saved = await api('/api/workflows/' + encodeURIComponent(nextName), {
+    // The name travels inside the document, never in the URL. A rename passes the id it
+    // replaces so Snowflake retires the old configuration in the same call; the previous
+    // save-then-delete pair could leave two copies behind and still report success.
+    let renaming = previousName && previousName !== nextName && currentCfId;
+    let saved = await api('/api/workflows' + (renaming ? '?previous=' + encodeURIComponent(currentCfId) : ''), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(serializeWorkflow())
     });
-    if (previousName && previousName !== nextName) {
-      await api('/api/workflows/' + encodeURIComponent(previousName), { method: 'DELETE' });
-      renameStoredLayout(previousName, nextName);
-    }
+    if (renaming) renameStoredLayout(previousName, nextName);
     current = saved.name;
     currentCfId = saved.cf_id;
     dirty = false;
@@ -937,6 +929,24 @@ async function saveWorkflow() {
     await loadWorkflows();
   } catch (e) {
     showStatus(e.message || 'Saving failed', 'error');
+  }
+}
+
+// The rendered SQL stays on the stage after a failed install, so the failing statement can
+// be shown rather than described.
+async function showRenderedSqlContext(runId, line) {
+  try {
+    let rendered = await window.fetch('/api/rendered/' + encodeURIComponent(runId));
+    if (!rendered.ok) return;
+    let body = await rendered.json();
+    let lines = (body.sql || '').split(/\r?\n/);
+    if (!line || line < 1 || line > lines.length) return;
+    appendInstallLog('');
+    for (let i = Math.max(0, line - 3); i < Math.min(lines.length, line + 2); i++) {
+      appendInstallLog((i + 1 === line ? '>> ' : '   ') + (i + 1) + '  ' + lines[i]);
+    }
+  } catch (e) {
+    // The context is a convenience; the error message already stands on its own.
   }
 }
 
@@ -952,55 +962,28 @@ async function installWorkflow() {
   installing = true;
   updateActionButtons();
   let hadError = false;
-  let completed = false;
 
   try {
-    let response = await window.fetch('/api/workflows/' + encodeURIComponent(currentCfId) + '/install/stream', {
+    // One request. Snowflake runs the rendered file with EXECUTE IMMEDIATE FROM, which
+    // stops at the first failing statement and leaves earlier ones applied, so there is
+    // no per-statement progress to stream. A failure names the line instead.
+    appendInstallLog('Rendering and executing...');
+    let result = await api('/api/workflows/' + encodeURIComponent(currentCfId) + '/install', {
       method: 'POST'
     });
-    if (!response.ok) {
-      let message = await response.text();
-      throw new Error(message || ('HTTP ' + response.status));
-    }
-    if (!response.body) {
-      throw new Error('Install stream is unavailable');
-    }
-
-    let reader = response.body.getReader();
-    let decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      let result = await reader.read();
-      buffer += decoder.decode(result.value || new Uint8Array(), { stream: !result.done });
-      let lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() || '';
-      lines.forEach((line) => {
-        if (!line) return;
-        appendInstallLog(line);
-        if (line.indexOf('[ERROR]') >= 0) hadError = true;
-        if (line.indexOf('[CONNECTION_REQUIRED]') >= 0) requireSnowflakeConnection('Reconnect to Snowflake, then check the installation before retrying.');
-        if (line.indexOf('[DONE]') >= 0) completed = true;
-      });
-      if (result.done) break;
-    }
-
-    if (buffer) {
-      appendInstallLog(buffer);
-      if (buffer.indexOf('[ERROR]') >= 0) hadError = true;
-      if (buffer.indexOf('[CONNECTION_REQUIRED]') >= 0) requireSnowflakeConnection('Reconnect to Snowflake, then check the installation before retrying.');
-      if (buffer.indexOf('[DONE]') >= 0) completed = true;
-    }
-    if (!hadError && !completed) throw new Error('Install stream ended before completion; check Snowflake before retrying');
-    if (hadError) {
-      setInstallModalState('error');
-      showStatus('Install failed', 'error');
-      return;
-    }
+    appendInstallLog('Rendered ' + result.lines + ' lines (' + result.bytes + ' bytes)');
+    appendInstallLog('Executed successfully.');
+    appendInstallLog('Rendered SQL kept on the stage as ' + result.run_id + '.sql');
     showStatus('Install finished', 'success');
   } catch (e) {
     hadError = true;
     appendInstallLog('[ERROR] ' + (e.message || 'Install failed'));
+    let payload = e.payload;
+    if (payload && payload.partial) {
+      appendInstallLog('Statements before the failure were applied. Inspect Snowflake before retrying.');
+      if (payload.line) appendInstallLog('Failed at line ' + payload.line + ' of the rendered SQL.');
+      if (payload.run_id) await showRenderedSqlContext(payload.run_id, payload.line);
+    }
     setInstallModalState('error');
     showStatus(e.message || 'Install failed', 'error');
   } finally {
@@ -1027,13 +1010,20 @@ async function deleteWorkflow() {
     return;
   }
   if (!confirm('Delete "' + current + '" from Snowflake?')) return;
-  clearLayoutState(current);
+  if (!currentCfId) {
+    showStatus('This workflow has no stored id; reload the library and try again', 'error');
+    return;
+  }
+  let deletedName = current;
   try {
-    await api('/api/workflows/' + encodeURIComponent(current), { method: 'DELETE' });
+    await api('/api/workflows/' + encodeURIComponent(currentCfId), { method: 'DELETE' });
   } catch (e) {
     showStatus(e.message || 'Delete failed', 'error');
     return;
   }
+  // Only discard the saved layout once Snowflake has confirmed the delete; doing it first
+  // lost the positions of a workflow that is still there.
+  clearLayoutState(deletedName);
   current = null;
   currentCfId = null;
   data = null;
@@ -2243,6 +2233,7 @@ if (!templateText || templateName === BUNDLED_TEMPLATE_NAME) {
   loadBundledTemplate(templateName === BUNDLED_TEMPLATE_NAME).catch(e => console.warn('Initial bundled template load failed:', e));
 }
 loadWorkflows(true).catch(e => console.error('loadWorkflows failed:', e));
+refreshConnectionStatus();
 </script>
 </body>
 </html>
