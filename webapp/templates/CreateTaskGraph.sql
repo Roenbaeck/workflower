@@ -20,7 +20,7 @@ $task.native.body$
 $/ else
 
 ----------------------------------------------------------------
--- $task.name$
+-- $|task.name|$
 ----------------------------------------------------------------
 -- Procedure (wraps metadata logging + work)
 CREATE OR REPLACE PROCEDURE sp_$task.name$()
@@ -42,35 +42,37 @@ BEGIN
 
     cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG('workflow'));
 
-    tr_id := (CALL metadata._TaskRunStarting('$task.name$', :grp_id, :cfg));
+    tr_id := (CALL metadata._TaskRunStarting($'task.name'$, :grp_id, :cfg));
 $/ foreach step in task.steps
 $/ if step.type == "proc"
 
-    -- Execute: $step.description$
+    -- Execute: $|step.description|$
     CALL $step.call$;
 $/ endif
 $/ if step.type == "lineage"
 
-    -- Record lineage: $step.description$
-    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, '$step.source$', '$step.target$'));
+    -- Record lineage: $|step.description|$
+    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, $'step.source'$, $'step.target'$));
 $/ endif
 $/ if step.type == "sql"
 
-    -- $step.description$
-    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, '$step.lineage.source$', '$step.lineage.target$'));
+    -- $|step.description|$
+    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, $'step.lineage.source'$, $'step.lineage.target'$));
     $step.sql$;
     row_count := SQLROWCOUNT;
     CALL metadata._TaskRunSetRows(:op_id, :row_count, 0, 0, 0);
 $/ endif
 $/ if step.type == "rows"
 
-    -- Log row counts: $step.description$
-    CALL metadata._TaskRunSetRows(:op_id, $step.inserted$, $step.updated$, $step.deleted$, $step.merged$);
+    -- Log row counts: $|step.description|$
+    $- Counts are authored as numbers but arrive from imported JSON too; TRY_TO_NUMBER
+       turns a non-numeric value into NULL instead of into SQL. -$
+    CALL metadata._TaskRunSetRows(:op_id, TRY_TO_NUMBER($'step.inserted'$), TRY_TO_NUMBER($'step.updated'$), TRY_TO_NUMBER($'step.deleted'$), TRY_TO_NUMBER($'step.merged'$));
 $/ endif
 $/ if step.type == "return_value"
 
     -- Pass return value to child tasks
-    CALL SYSTEM$SET_RETURN_VALUE('$step.message$');
+    CALL SYSTEM$SET_RETURN_VALUE($'step.message'$);
 $/ endif
 $/ endfor
 
@@ -85,15 +87,15 @@ CREATE OR REPLACE TASK $task.name$
 $/ if task.is_root == true
     SUSPEND_TASK_AFTER_NUM_FAILURES = $MAX_FAILURES$
 $/ endif
-    COMMENT = '$task.description$'
+    COMMENT = $'task.description'$
 $/ if task.schedule
-    SCHEDULE = '$task.schedule$'
+    SCHEDULE = $'task.schedule'$
 $/ endif
 $/ if task.after
     AFTER $/ foreach t in task.after $/ if t.first() $t.name$$/ else ,$t.name$$/ endif $/ endfor
 $/ endif
 $/ if task.is_root == true
-    CONFIG = '$CONFIG$'
+    CONFIG = $'CONFIG'$
 $/ endif
 AS
     CALL sp_$task.name$();
