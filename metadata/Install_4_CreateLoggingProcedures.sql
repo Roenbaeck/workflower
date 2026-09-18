@@ -279,6 +279,12 @@ LANGUAGE SQL
 AS
 $$
 BEGIN
+    -- A rows step attaches counts to the operation a preceding lineage or sql step opened.
+    -- With no such step there is nothing to attach to, and inserting a null operation id
+    -- failed the whole task on a non-nullable column. Validation now rejects that ordering,
+    -- so this is the guard for anything already installed.
+    IF (OP_ID IS NULL) THEN RETURN NULL; END IF;
+
     LET now_ts TIMESTAMP_TZ := SYSDATE();
 
     INSERT INTO metadata.OP_INS_Operations_RowsInserted (OP_INS_OP_ID, OP_INS_Operations_RowsInserted, OP_INS_ChangedAt)

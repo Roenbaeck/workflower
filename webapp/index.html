@@ -133,6 +133,16 @@
             <input id="wf-timeout" type="number" placeholder="Timeout (ms)" oninput="syncForm()"/>
             <label for="wf-max-fail">Max failures</label>
             <input id="wf-max-fail" type="number" placeholder="Max failures" oninput="syncForm()"/>
+            <label class="check-option"><input type="checkbox" id="wf-serverless" onchange="syncForm()"/><span>Serverless (no warehouse)</span></label>
+            <p class="sidebar-note">Serverless tasks are billed per second with no one-minute minimum and no idle time, which is usually cheaper for short or infrequent work. They need the EXECUTE MANAGED TASK privilege.</p>
+            <label for="wf-task-size">Initial task size (serverless)</label>
+            <select id="wf-task-size" onchange="syncForm()">
+              <option value="XSMALL">XSMALL</option>
+              <option value="SMALL">SMALL</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="LARGE">LARGE</option>
+              <option value="XLARGE">XLARGE</option>
+            </select>
             <label for="wf-config">Shared task config (JSON)</label>
             <textarea id="wf-config" class="config-area" placeholder="Optional" oninput="syncForm()" rows="6"></textarea>
           </div>
@@ -1448,6 +1458,15 @@ function renderEditor() {
   document.getElementById('wf-max-fail').value = data.MAX_FAILURES || 3;
   document.getElementById('wf-config').value = data.CONFIG || '';
 
+  let serverless = getId('wf-serverless');
+  let size = getId('wf-task-size');
+  if (serverless) serverless.checked = data.SERVERLESS === true;
+  if (size) {
+    size.value = data.TASK_SIZE || 'XSMALL';
+    size.disabled = data.SERVERLESS !== true;
+  }
+  getId('wf-wh').disabled = data.SERVERLESS === true;
+
   let nativeNote = getId("native-settings-note");
   if (nativeNote) nativeNote.hidden = !data.TASKS.some(t => t.native);
   renderMetrics();
@@ -1985,7 +2004,16 @@ function renderTaskForm() {
         <label>Run after (predecessors)</label>
         <div id="f-after"></div>
       </div>
+      <div class="form-group">
+        <label for="f-stream">Only run when this stream has data</label>
+        <input id="f-stream" value="${esc(t.stream||'')}" placeholder="my_schema.my_stream" oninput="syncTask()"/>
+      </div>
+      <div class="form-group">
+        <label for="f-condition">Only run when (condition)</label>
+        <input id="f-condition" value="${esc(t.condition||'')}" placeholder="raw WHEN expression" oninput="syncTask()"/>
+      </div>
     </div>
+    <p class="sidebar-note">A condition is checked without starting a warehouse, so a root task that skips costs nothing. Use the stream field for the common case, or a condition for anything else; a task can have only one.</p>
     <button type="button" class="remove-task-button" onclick="removeTask()">Remove task</button>
   `;
   // Render multi-select for after
@@ -2024,6 +2052,11 @@ function syncTask() {
   if (fState) t.state = fState.value;
   let fRoot = document.getElementById('f-root');
   if (fRoot) t.is_root = fRoot.checked;
+  // Blank means absent, not empty: an empty WHEN clause would not render.
+  let fStream = document.getElementById('f-stream');
+  if (fStream) t.stream = fStream.value.trim() || null;
+  let fCondition = document.getElementById('f-condition');
+  if (fCondition) t.condition = fCondition.value.trim() || null;
   let checks = document.querySelectorAll('#f-after input[type=checkbox]');
   if (checks.length) {
     t.after = Array.from(checks).filter(c => c.checked).map(c => ({name: c.value}));
@@ -2037,10 +2070,26 @@ function syncTask() {
 
 function syncForm() {
   data.WORKFLOW = document.getElementById('wf-name').value;
-  data.WAREHOUSE = document.getElementById('wf-wh').value;
   data.TASK_TIMEOUT = parseInt(document.getElementById('wf-timeout').value) || 3600000;
   data.MAX_FAILURES = parseInt(document.getElementById('wf-max-fail').value) || 3;
   data.CONFIG = document.getElementById('wf-config').value || null;
+
+  // Serverless and a warehouse are mutually exclusive, so keep only the one in use rather
+  // than saving both and having validation reject it.
+  let serverless = document.getElementById('wf-serverless');
+  let warehouse = document.getElementById('wf-wh');
+  let size = document.getElementById('wf-task-size');
+  if (serverless && serverless.checked) {
+    data.SERVERLESS = true;
+    data.TASK_SIZE = size ? size.value : 'XSMALL';
+    delete data.WAREHOUSE;
+  } else {
+    delete data.SERVERLESS;
+    delete data.TASK_SIZE;
+    data.WAREHOUSE = warehouse ? warehouse.value : '';
+  }
+  if (warehouse) warehouse.disabled = !!(serverless && serverless.checked);
+  if (size) size.disabled = !(serverless && serverless.checked);
   setDirty(true);
 }
 

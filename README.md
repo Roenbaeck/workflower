@@ -96,6 +96,35 @@ a configuration whose keys are merged over the workflow's own at render time:
 install with. Environment keys win over the workflow's, and the whole environment is also
 exposed to templates as `$ENV.<key>$`.
 
+Changing where something runs is then a two-step loop that never touches the workflow:
+
+1. `PUT /api/environments` with the same `NAME` — it upserts in place, keeping its `CF_ID`.
+2. Reinstall the workflow with that environment selected.
+
+The rendered DDL picks up the new values and the stored workflow is unchanged, so the same
+definition can be pointed at a different warehouse, timeout or failure cap per environment.
+Because a task's warehouse comes from its DDL rather than from your connection, moving
+existing tasks to another warehouse means reinstalling them — which is exactly what this
+loop is for.
+
+### Keeping credits down
+
+Two levers, both in [docs/WorkflowFormat.md](docs/WorkflowFormat.md):
+
+**Conditions.** A task's `stream` or `condition` renders a `WHEN` clause, evaluated in the
+cloud services layer. When it is false the warehouse never resumes and the run costs
+nothing, so a graph scheduled every few minutes that usually has nothing to do is close to
+free. Available on any task; on the root it gates the whole graph.
+
+**Serverless tasks.** Set `SERVERLESS` with a `TASK_SIZE` instead of a `WAREHOUSE`. Billed
+per second with no one-minute minimum and no idle time, which is usually cheaper for short
+or infrequent work. Needs the `EXECUTE MANAGED TASK` privilege granted to the task owner's
+role, the same shape of account-level grant as `EXECUTE TASK`.
+
+Otherwise, the warehouse's `AUTO_SUSPEND` dominates: every resume bills a 60-second minimum
+and the warehouse keeps billing while idle. A task graph doing five seconds of work on a
+warehouse with a five-minute auto-suspend pays for about 305 seconds.
+
 ### Validation
 
 A graph is validated before anything is rendered: duplicate names, predecessors that do
