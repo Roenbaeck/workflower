@@ -124,8 +124,32 @@ All SQL is passed to the CLI through a temporary `.sql` file. `snow sql -q` corr
 signs, which matters for a template language built on `$token$` whose procedures are
 delimited by doubled dollars.
 
-Rendered SQL is kept on the stage as an audit trail of exactly what was executed. Nothing
-prunes it automatically.
+Rendered SQL is kept on the stage as an audit trail of exactly what was executed.
+
+### Stage retention
+
+Snowflake has no expiry for staged files — storage lifecycle policies apply to table rows,
+not to stages. `LIST` and `REMOVE` are both rejected inside a stored procedure, so the
+prune cannot be a Snowflake task either. It is a script you schedule:
+
+```
+.\prune.ps1 <connection_name> -WhatIf
+.\prune.ps1 <connection_name>
+```
+
+Defaults keep `out/` for 90 days and `in/` and `export/` for 7. `out/` holds the SQL that
+was actually executed and is the audit trail; `in/` duplicates a configuration already
+stored historized in the metadata model, and `export/` has already been downloaded.
+
+To see what is there before choosing a window:
+
+```sql
+ALTER STAGE metadata.WORKFLOWER REFRESH;
+SELECT AREA, COUNT(*) AS FILES, SUM(BYTES) AS BYTES, MAX(AGE_DAYS) AS OLDEST_DAYS
+FROM metadata.WORKFLOWER_STAGE_FILES GROUP BY AREA;
+```
+
+On the server, schedule `prune.ps1` with Windows Task Scheduler.
 
 ### Installation is not atomic
 

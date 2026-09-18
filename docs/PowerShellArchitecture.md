@@ -353,8 +353,31 @@ the missing CSP header.
 2. **Storage fidelity.** Byte-exact. The document is parsed for its name but stored as
    written, so an export round-trips identically.
 3. **GitHub Pages.** Dropped. `static.yml` is deleted.
-4. **Stage retention.** Files under `out/` are kept as an audit trail. Nothing prunes them
-   automatically; add a scheduled `REMOVE` if they accumulate.
+4. **Stage retention.** Files under `out/` are kept as an audit trail, pruned by
+   `prune.ps1` with per-area windows (see below).
+
+## Stage retention
+
+Snowflake has **no expiry for staged files**. Storage lifecycle policies apply to table
+rows, not to stages, so cleanup is ours. Two limits shape the design, both verified:
+
+- **`LIST` and `REMOVE` are rejected inside a stored procedure** — `Unsupported statement
+  type 'LIST_FILES'` and `'REMOVE_FILES'`. The prune therefore *cannot* be a Snowflake
+  task, which is the obvious thing to reach for in a task-graph tool. It is `prune.ps1`,
+  scheduled with Windows Task Scheduler.
+- **`DIRECTORY()` is a table function and works anywhere**, and reports `LAST_MODIFIED` as
+  a real timestamp. `LIST` reports an RFC 1123 string (`Fri, 18 Sep 2026 09:38:44 GMT`)
+  that needs its weekday and `GMT` suffix stripped before parsing. The directory table is
+  exact and needs no date parsing, so the stage enables one.
+
+An internal stage's directory table does not refresh itself, so `prune.ps1` issues
+`ALTER STAGE ... REFRESH` before reading. The refresh cost falls on the prune job rather
+than on every upload.
+
+`metadata.WORKFLOWER_STAGE_FILES` exposes path, area, size and age. Retention differs per
+area because the three are worth different amounts: `out/` is the audit trail of what
+actually executed (90 days), `in/` duplicates a configuration already stored historized in
+the metadata model (7 days), and `export/` has already been downloaded (7 days).
 
 ## Traps found while implementing
 

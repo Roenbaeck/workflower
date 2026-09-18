@@ -37,16 +37,21 @@ Originally a code review from 2026-09-17. Updated 2026-09-18 during the PowerShe
   Renaming or reordering either function changes what is under test with no failure signal,
   and an unmatched marker yields `-1` rather than an error.
 
-- [ ] **The JavaScript tests were not run during the rewrite.** Node is not installed on
-  the development machine and will not be on the restricted server. `test_workflow_read.js`
-  was updated for CF_ID addressing but has not been executed. Either install Node somewhere
-  in the loop or port these to a runner that exists on the target.
-
 - [ ] **Most SQL tests print rather than assert.** Only `sql/test_escaping.sql` reports a
   `STATUS` column that `test_all.ps1` checks. The other five files render a template and
   print the output for a human to read, so a regression in them is invisible to CI.
 
 ## Fixed
+
+- [x] **The JavaScript tests now run.** Node 24 LTS installed on the development machine;
+  `test_local.js` and the three `node --test` files pass (22 tests), including
+  `test_workflow_read.js` updated for CF_ID addressing. Note that Node is *not* on the
+  restricted server, so these stay a development-machine check rather than part of the
+  deployment story.
+- [x] **Stage files accumulated with no way to age them out.** Snowflake has no expiry for
+  staged files, and both `LIST` and `REMOVE` are rejected inside a stored procedure, so the
+  prune cannot be a Snowflake task. `metadata.WORKFLOWER_STAGE_FILES` exposes each file's
+  age through `DIRECTORY()`, and `prune.ps1` removes aged files with per-area retention.
 
 - [x] **Generated DDL broke on ordinary input.** The template interpolated raw values into
   SQL comments and string literals. Fixed by adding the `$'path'$` and `$|path|$` escaping

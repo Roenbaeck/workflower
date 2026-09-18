@@ -15,7 +15,11 @@
     deletes them.
 */
 
+-- The directory table is what prune.ps1 ages files by: DIRECTORY() reports LAST_MODIFIED
+-- as a real timestamp, where LIST reports an RFC 1123 string. It does not refresh itself
+-- on an internal stage, so the prune job refreshes it rather than every upload paying.
 CREATE STAGE IF NOT EXISTS metadata.WORKFLOWER
+    DIRECTORY = (ENABLE = TRUE)
     COMMENT = 'Workflower payload exchange. See Install_6_StageProcedures.sql.';
 
 -- Reads a whole file back as one byte-exact string. Every option matters: the default

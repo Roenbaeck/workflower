@@ -25,6 +25,7 @@ $steps = [ordered]@{
     '5. Config procs'    = 'metadata\Install_5_ConfigurationProcedures.sql'
     '6. Stage procs'     = 'metadata\Install_6_StageProcedures.sql'
     '7. Import procs'    = 'metadata\Install_7_ImportProcedures.sql'
+    '8. Stage retention' = 'metadata\Install_8_StageRetention.sql'
 }
 
 Write-Host '=== metadata deploy ==='
@@ -40,7 +41,7 @@ foreach ($name in $steps.Keys) {
 }
 
 # --- Seed the template through the stage ---
-Write-Host '--- 8. Seed template: CreateTaskGraph ---'
+Write-Host '--- 9. Seed template: CreateTaskGraph ---'
 $runId = New-RunId
 $templatePath = Join-Path $root 'webapp\templates\CreateTaskGraph.sql'
 $staged = Join-Path ([System.IO.Path]::GetTempPath()) "$runId.sql"
