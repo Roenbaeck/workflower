@@ -691,13 +691,33 @@ function ensureMiniSvg() {
   return miniSvgEl;
 }
 
+// What the canvas actually shows. The SVG fits its viewBox inside the pane rather than
+// stretching it, so the visible region is larger than the viewBox in whichever axis the
+// pane is roomier. The navigator has to show that region, not the viewBox, or the
+// rectangle understates the view by however much the two aspects differ.
+function visibleGraphRect() {
+  let viewBox = currentViewBox();
+  if (!svgEl || !svgEl.clientWidth || !svgEl.clientHeight) return viewBox;
+  let canvasAspect = svgEl.clientWidth / svgEl.clientHeight;
+  let width = viewBox.width;
+  let height = viewBox.height;
+  if (canvasAspect > width / height) width = height * canvasAspect;
+  else height = width / canvasAspect;
+  return {
+    x: viewBox.x + (viewBox.width - width) / 2,
+    y: viewBox.y + (viewBox.height - height) / 2,
+    width: width,
+    height: height,
+  };
+}
+
 function drawMiniMap() {
   let miniatureSvg = ensureMiniSvg();
   if (!miniatureSvg) return;
   while (miniatureSvg.firstChild) miniatureSvg.removeChild(miniatureSvg.firstChild);
 
   let bounds = getGraphBounds();
-  let view = currentViewBox();
+  let view = visibleGraphRect();
 
   // A navigator has to show where you are even when the view is wider than the graph, so
   // the minimap spans the union of the two. Framing it on the graph alone clipped the
@@ -716,6 +736,25 @@ function drawMiniMap() {
     height: (bottom - top) + margin * 2,
   };
   miniatureSvg.setAttribute('viewBox', `${frame.x} ${frame.y} ${frame.width} ${frame.height}`);
+
+  // Size the box to the aspect of what it shows, as the Anchor Modeler's navigator does.
+  // A fixed box letterboxes whatever does not share its shape, so the minimap stopped
+  // being a faithful scaled copy of the canvas and the viewport rectangle read wrong.
+  let miniature = document.getElementById('miniature');
+  if (miniature) {
+    let styles = getComputedStyle(miniature);
+    let maxWidth = parseFloat(styles.getPropertyValue('--mini-max-width')) || 150;
+    let maxHeight = parseFloat(styles.getPropertyValue('--mini-max-height')) || 110;
+    let aspect = frame.width / frame.height;
+    let width = maxWidth;
+    let height = width / aspect;
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * aspect;
+    }
+    miniature.style.width = Math.round(width) + 'px';
+    miniature.style.height = Math.round(height) + 'px';
+  }
 
   function mini(tag, attrs) {
     let el = document.createElementNS(svgNS, tag);

@@ -193,7 +193,9 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
 #graph-container polygon { fill: #7d989f; }
 #graph-container .node-fixation { fill: #087c70; stroke: #fff; }
 #graph-empty { position: absolute; inset: 45% 12px auto; text-align: center; color: var(--text-muted); pointer-events: none; }
-#miniature { width: 140px; height: 96px; right: 12px; bottom: 12px; border-radius: 5px; background: #ffffffed; border: 1px solid var(--line-strong); box-shadow: none; backdrop-filter: none; }
+/* Width and height are set by drawMiniMap so the box matches the aspect of what it shows;
+   these are the fallback before the first draw. --mini-max-* bound how large it may get. */
+#miniature { --mini-max-width: 150px; --mini-max-height: 110px; width: 140px; height: 96px; right: 12px; bottom: 12px; border-radius: 5px; background: #ffffffed; border: 1px solid var(--line-strong); box-shadow: none; backdrop-filter: none; }
 #miniature .mini-node { fill: #dce9ed; stroke: #638c9b; }
 #miniature .mini-node.root { fill: #d8eee5; stroke: #28836b; }
 #miniature .mini-node.selected { stroke: #087c70; }
@@ -280,7 +282,7 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
   #btn-inspector-expand { display: none; }
   .canvas-heading, .inspector-heading { padding: 8px 12px; min-height: 46px; }
   #graph-toolbar { top: 10px; left: 10px; }
-  #miniature { width: 108px; height: 74px; right: 10px; bottom: 10px; }
+  #miniature { --mini-max-width: 116px; --mini-max-height: 86px; width: 108px; height: 74px; right: 10px; bottom: 10px; }
   .metric:nth-child(2) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {

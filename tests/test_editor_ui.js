@@ -119,8 +119,12 @@ function drawMinimapWith(bounds, view) {
     taskId: () => 'x',
     ensureMiniSvg: () => svg,
     getGraphBounds: () => bounds,
-    currentViewBox: () => view,
-    document: { createElementNS: (ns, tag) => ({ tag, attributes: {}, setAttribute(n, v) { this.attributes[n] = v; } }) },
+    visibleGraphRect: () => view,
+    document: {
+      createElementNS: (ns, tag) => ({ tag, attributes: {}, setAttribute(n, v) { this.attributes[n] = v; } }),
+      // No box in this harness, so the sizing step is skipped; it has its own test.
+      getElementById: () => null,
+    },
   });
   vm.runInContext(sourceBetween('function drawMiniMap(', 'function screenToMiniature('), context);
   context.drawMiniMap();
@@ -134,6 +138,47 @@ function contains(frame, rect) {
       && rect.x + rect.width <= frame[0] + frame[2]
       && rect.y + rect.height <= frame[1] + frame[3];
 }
+
+// The canvas fits the viewBox inside itself rather than stretching it, so what you can see
+// is larger than the viewBox in whichever axis the pane is roomier. Drawing the viewBox as
+// the viewport rectangle understated the view by however much the two aspects differed.
+function visibleRectFor(viewBox, clientWidth, clientHeight) {
+  const context = vm.createContext({
+    currentViewBox: () => viewBox,
+    svgEl: { clientWidth, clientHeight },
+  });
+  vm.runInContext(sourceBetween('function visibleGraphRect(', 'function drawMiniMap('), context);
+  return context.visibleGraphRect();
+}
+
+test('the viewport rectangle covers what the canvas really shows', () => {
+  const viewBox = { x: 0, y: 0, width: 400, height: 400 };
+
+  // A wide pane shows more to the sides; the view stays centred on the same point.
+  let seen = visibleRectFor(viewBox, 800, 400);
+  assert.equal(Math.round(seen.width), 800);
+  assert.equal(Math.round(seen.height), 400);
+  assert.equal(Math.round(seen.x + seen.width / 2), 200);
+  assert.equal(Math.round(seen.y + seen.height / 2), 200);
+
+  // A tall pane shows more above and below.
+  seen = visibleRectFor(viewBox, 400, 800);
+  assert.equal(Math.round(seen.width), 400);
+  assert.equal(Math.round(seen.height), 800);
+  assert.equal(Math.round(seen.y + seen.height / 2), 200);
+
+  // Matching aspects change nothing.
+  seen = visibleRectFor(viewBox, 600, 600);
+  assert.equal(Math.round(seen.width), 400);
+  assert.equal(Math.round(seen.height), 400);
+
+  // It must never show less than the viewBox, in either axis.
+  for (const [w, h] of [[1000, 300], [300, 1000], [123, 457]]) {
+    const r = visibleRectFor(viewBox, w, h);
+    assert.ok(r.width >= viewBox.width - 1e-9 && r.height >= viewBox.height - 1e-9,
+      `visible region shrank below the viewBox at ${w}x${h}`);
+  }
+});
 
 test('the minimap always shows the viewport, however far it is from the graph', () => {
   const graph = { x: 200, y: 50, width: 400, height: 300 };
