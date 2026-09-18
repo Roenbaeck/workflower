@@ -24,6 +24,7 @@ $steps = [ordered]@{
     '4. Logging procs'   = 'metadata\Install_4_CreateLoggingProcedures.sql'
     '5. Config procs'    = 'metadata\Install_5_ConfigurationProcedures.sql'
     '6. Stage procs'     = 'metadata\Install_6_StageProcedures.sql'
+    '7. Import procs'    = 'metadata\Install_7_ImportProcedures.sql'
 }
 
 Write-Host '=== metadata deploy ==='

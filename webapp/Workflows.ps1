@@ -174,6 +174,43 @@ function Get-RenderedSql {
     return New-ApiResult -Body ([pscustomobject]@{ run_id = $runId; sql = $sql })
 }
 
+function Import-TaskGraphs {
+    <#
+        Reverse engineers native task graphs. Read-only with respect to Snowflake tasks.
+        The schema and root are user-supplied identifiers, so they travel to Snowflake as a
+        staged parameter file rather than in the SQL.
+    #>
+    param([Parameter(Mandatory = $true)][string] $Connection,
+          [Parameter(Mandatory = $true)][string] $Schema,
+          [string] $Root)
+
+    $paramsRunId = Assert-RunId (New-RunId)
+    $outRunId = Assert-RunId (New-RunId)
+
+    $params = @{ schema = $Schema }
+    if ($Root) { $params['root'] = $Root }
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) "$paramsRunId.json"
+    [System.IO.File]::WriteAllText($path, (ConvertTo-Json -InputObject $params -Compress), (New-Object System.Text.UTF8Encoding($false)))
+    try {
+        Copy-ToStage -LocalPath $path -StagePath '@metadata.WORKFLOWER/in/' -Connection $Connection | Out-Null
+    }
+    catch { return New-ApiError -Status 502 -Detail $_.Exception.Message }
+    finally { Remove-Item $path -Force -ErrorAction SilentlyContinue }
+
+    $result = Invoke-SnowSql -Sql "CALL metadata._ExportTaskGraphs('$paramsRunId', '$outRunId');" -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+
+    # Read the export back through the same stage rather than downloading it.
+    $result = Invoke-SnowSql -Sql "CALL metadata._StageReadText('export/$outRunId.json');" -Connection $Connection
+    if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
+    $row = @($result.Json)[0]
+    $json = $null
+    if ($row) { $json = ($row.psobject.Properties | Select-Object -First 1).Value }
+    if (-not $json) { return New-ApiError -Status 502 -Detail 'The export produced no output' }
+
+    return New-ApiResult -Body ([pscustomobject]@{ run_id = $outRunId; graphs = ($json | ConvertFrom-Json) })
+}
+
 function Get-ConnectionStatus {
     param([Parameter(Mandatory = $true)][string] $Connection)
     $result = Invoke-SnowSql -Sql 'SELECT CURRENT_ACCOUNT() AS ACCOUNT, CURRENT_USER() AS USER, CURRENT_ROLE() AS ROLE, CURRENT_WAREHOUSE() AS WAREHOUSE, CURRENT_DATABASE() AS DATABASE;' -Connection $Connection

@@ -93,6 +93,17 @@ function Invoke-Route {
     if ($Path -eq '/api/connection/status' -and $Method -eq 'GET') {
         return Get-ConnectionStatus -Connection $Connection
     }
+    if ($Path -eq '/api/import' -and $Method -eq 'POST') {
+        $request = $null
+        try { $request = Read-RequestBody $Context | ConvertFrom-Json }
+        catch { return New-ApiError -Status 400 -Detail 'Import request must be JSON' }
+        if (-not $request -or -not $request.schema) {
+            return New-ApiError -Status 400 -Detail 'schema is required, as DATABASE.SCHEMA'
+        }
+        $importRoot = $null
+        if ($request.psobject.Properties.Name -contains 'root') { $importRoot = $request.root }
+        return Import-TaskGraphs -Connection $Connection -Schema $request.schema -Root $importRoot
+    }
     if ($Path -match '^/api/workflows/(\d+)$') {
         if ($Method -eq 'GET')    { return Get-Workflow -Connection $Connection -CfId $Matches[1] }
         if ($Method -eq 'DELETE') { return Remove-Workflow -Connection $Connection -CfId $Matches[1] }
