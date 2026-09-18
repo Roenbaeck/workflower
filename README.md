@@ -32,13 +32,56 @@ installation provides plus the Snowflake CLI.
 
 ## Repo Layout
 
-- `sql/`: deploys the Snowflake Sisula engine, plus SQL tests.
-- `metadata/`: metadata schema, model, knot values, logging, configuration, stage and
-  import procedures.
+- `sql/`: deploys the Snowflake Sisula engine.
+- `metadata/`: the anchor model and its generator, plus knot values, logging,
+  configuration, stage, import and retention procedures.
 - `webapp/`: the editor UI, the PowerShell server and handlers, and browser assets.
 - `webapp/templates/`: template sources deployed into Snowflake metadata storage; also used
   for the browser's offline preview.
+- `tests/`: the JavaScript and SQL test suites.
 - `examples/`: example workflow bindings.
+
+## The metadata model
+
+Everything the metadata schema stores is anchor modelled. `metadata/MetadataModel.xml` is
+the source of truth and `metadata/Install_2_MetadataModel.sql` is generated from it by the
+[Anchor Modeling](https://www.anchormodeling.com/modeler/test) tool, targeting Snowflake.
+
+Regenerate it without opening the modeler:
+
+```
+npm install
+npm run generate-model
+```
+
+`metadata/generate.js` runs the modeler's own Sisulator and its published Snowflake scripts
+locally, caching them under `metadata/.anchor/`. Use `--refresh` to re-fetch them.
+
+Because the generated DDL uses `CREATE TABLE IF NOT EXISTS`, changing an existing
+attribute's temporalization requires dropping its table before redeploying; the generator
+will not alter one in place.
+
+### Installations are recorded
+
+Every render creates an `IL_Installation`, tied to the configuration it came from and the
+template applied, holding the run id, the rendered DDL, when it was rendered, its outcome
+and any error. The record outlives the staged file, so pruning the stage does not lose the
+audit trail:
+
+```sql
+SELECT LEFT(il.IL_RID_Installation_RunId, 8) AS RUN,
+       cf.CF_NAM_Configuration_Name          AS WORKFLOW,
+       COALESCE(il.IL_STA_ILS_InstallationStatus, 'not reported') AS STATUS,
+       il.IL_RAT_Installation_RenderedAt     AS RENDERED_AT
+FROM metadata.lIL_Installation il
+LEFT JOIN metadata.IL_installs_CF_configuration t ON t.IL_ID_installs = il.IL_ID
+LEFT JOIN metadata.lCF_Configuration cf ON cf.CF_ID = t.CF_ID_configuration
+ORDER BY il.IL_RAT_Installation_RenderedAt DESC;
+```
+
+An installation with no status was rendered but never reported back on. `Failed` means
+partially applied, since execution stops at the first failing statement and leaves earlier
+ones in place.
 
 ## Quick Start
 
@@ -98,14 +141,14 @@ or reconstructed.
 ### 6. Run tests
 
 ```
-.\test_all.ps1 <connection_name>
-node test_local.js
-node --test test_workflow_read.js test_editor_ui.js test_native_tasks.js
+.\tests\test_all.ps1 <connection_name>
+npm test
 ```
 
-`test_all.ps1` runs the SQL suite in `sql/`. Most of those files render templates and print
-the result for inspection; `sql/test_escaping.sql` asserts, reporting a `STATUS` column
-that the runner checks.
+`tests\test_all.ps1` runs the SQL suite in `tests/sql/`. Most of those files render
+templates and print the result for inspection; `tests/sql/test_escaping.sql` asserts,
+reporting a `STATUS` column that the runner checks. `npm test` runs the JavaScript suites,
+which need Node and so are a development-machine check rather than part of deployment.
 
 ## Architecture
 
