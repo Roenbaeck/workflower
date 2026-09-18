@@ -65,8 +65,8 @@ $/ endif
 $/ if step.type == "rows"
 
     -- Log row counts: $|step.description|$
-    $- Counts are authored as numbers but arrive from imported JSON too; TRY_TO_NUMBER
-       turns a non-numeric value into NULL instead of into SQL. -$
+$- Counts are authored as numbers but reach this template from imported JSON too, so
+$- TRY_TO_NUMBER turns a non-numeric value into NULL rather than into SQL.
     CALL metadata._TaskRunSetRows(:op_id, TRY_TO_NUMBER($'step.inserted'$), TRY_TO_NUMBER($'step.updated'$), TRY_TO_NUMBER($'step.deleted'$), TRY_TO_NUMBER($'step.merged'$));
 $/ endif
 $/ if step.type == "return_value"
