@@ -119,12 +119,19 @@ Child tasks can retrieve this with `SYSTEM$GET_PREDECESSOR_RETURN_VALUE('parent_
 
 Each task body is a stored procedure (`sp_<task_name>`) that:
 
-1. Reads the graph config via `SYSTEM$GET_TASK_GRAPH_CONFIG('workflow')`
-2. Calls `metadata._TaskRunStarting` to log the task run
+1. Reads the whole graph config via `SYSTEM$GET_TASK_GRAPH_CONFIG()` into `:cfg`, which
+   `sql` steps can read. Both this and the run-id lookup are guarded, because they raise
+   outside a task rather than returning null; that guard is also what lets `sp_<task_name>`
+   be called directly to test a workflow without executing the graph.
+2. Calls `metadata._TaskRunStarting` to open the task run, recording its name, the graph
+   run it belongs to, the workflow it came from, and when it started
 3. Executes each step in order
 4. Calls `metadata._TaskRunSourceToTarget` for lineage steps
 5. Calls `metadata._TaskRunSetRows` for sql steps
 6. Calls `SYSTEM$SET_RETURN_VALUE` for return_value steps
+7. Calls `metadata._TaskRunFinished` on success, or `metadata._TaskRunFailed` from its
+   exception handler and then re-raises, so a failure is recorded and Snowflake still fails
+   the task
 
 The rendered SQL generates both the stored procedures and the `CREATE TASK` DDL, then
 sets each task to the state specified by `state` (`suspended` or `running`).

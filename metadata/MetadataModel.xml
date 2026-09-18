@@ -16,6 +16,14 @@
     <metadata capsule="metadata" generator="true"/>
     <layout x="949.22" y="690.32" fixed="false"/>
   </knot>
+  <knot mnemonic="ILS" descriptor="InstallationStatus" identity="tinyint" dataRange="varchar(42)">
+    <metadata capsule="metadata" generator="false"/>
+    <layout x="150.00" y="690.00" fixed="false"/>
+  </knot>
+  <knot mnemonic="TRS" descriptor="TaskRunStatus" identity="tinyint" dataRange="varchar(42)">
+    <metadata capsule="metadata" generator="false"/>
+    <layout x="700.00" y="640.00" fixed="false"/>
+  </knot>
   <anchor mnemonic="TR" descriptor="TaskRun" identity="int">
     <metadata capsule="metadata" generator="true"/>
     <attribute mnemonic="NAM" descriptor="TaskName" knotRange="TKN">
@@ -25,6 +33,22 @@
     <attribute mnemonic="GRG" descriptor="GraphRunGroupId" knotRange="GRG">
       <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
       <layout x="894.50" y="673.89" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="BEG" descriptor="StartedAt" dataRange="timestamp_tz">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="742.00" y="520.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="FIN" descriptor="FinishedAt" dataRange="timestamp_tz">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="742.00" y="580.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="STA" descriptor="Status" knotRange="TRS">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="770.00" y="620.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="ERR" descriptor="Error" dataRange="varchar(2000)">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="672.00" y="560.00" fixed="false"/>
     </attribute>
     <layout x="836.91" y="557.33" fixed="false"/>
   </anchor>
@@ -92,6 +116,30 @@
     </attribute>
     <layout x="1057.39" y="445.25" fixed="false"/>
   </anchor>
+  <anchor mnemonic="IL" descriptor="Installation" identity="int">
+    <metadata capsule="metadata" generator="true"/>
+    <attribute mnemonic="RID" descriptor="RunId" dataRange="varchar(36)">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="150.00" y="530.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="DDL" descriptor="RenderedSql" dataRange="varchar(16777216)">
+      <metadata privacy="Ignore" capsule="metadata" checksum="true" idempotent="true" deletable="false"/>
+      <layout x="120.00" y="600.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="RAT" descriptor="RenderedAt" dataRange="timestamp_tz">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="180.00" y="500.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="STA" descriptor="Status" knotRange="ILS">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="212.00" y="648.00" fixed="false"/>
+    </attribute>
+    <attribute mnemonic="ERR" descriptor="Error" dataRange="varchar(2000)">
+      <metadata privacy="Ignore" capsule="metadata" idempotent="true" deletable="false"/>
+      <layout x="300.00" y="648.00" fixed="false"/>
+    </attribute>
+    <layout x="250.00" y="570.00" fixed="false"/>
+  </anchor>
   <tie>
     <role role="operates" type="TR" identifier="true"/>
     <role role="source" type="CO" identifier="true"/>
@@ -111,5 +159,17 @@
     <role role="template" type="TP" identifier="false"/>
     <metadata capsule="metadata" deletable="false" idempotent="true"/>
     <layout x="522.00" y="344.00" fixed="false"/>
+  </tie>
+  <tie>
+    <role role="installs" type="IL" identifier="true"/>
+    <role role="configuration" type="CF" identifier="false"/>
+    <metadata capsule="metadata" deletable="false" idempotent="true"/>
+    <layout x="400.00" y="500.00" fixed="false"/>
+  </tie>
+  <tie>
+    <role role="applies" type="IL" identifier="true"/>
+    <role role="rendered" type="TP" identifier="false"/>
+    <metadata capsule="metadata" deletable="false" idempotent="true"/>
+    <layout x="330.00" y="420.00" fixed="false"/>
   </tie>
 </schema>

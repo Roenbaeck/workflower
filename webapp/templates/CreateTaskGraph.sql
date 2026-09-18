@@ -20,7 +20,7 @@ $task.native.body$
 $/ else
 
 ----------------------------------------------------------------
--- $task.name$
+-- $|task.name|$
 ----------------------------------------------------------------
 -- Procedure (wraps metadata logging + work)
 CREATE OR REPLACE PROCEDURE sp_$task.name$()
@@ -35,46 +35,75 @@ DECLARE
     row_count INT;
     cfg VARCHAR;
 BEGIN
-    grp_id := (SELECT COALESCE(
-        SYSTEM$TASK_RUNTIME_INFO('CURRENT_ROOT_TASK_UUID'),
-        UUID_STRING()
-    ));
+$- SYSTEM$TASK_RUNTIME_INFO raises outside a task rather than returning null, so a
+$- COALESCE around it can never fall back. Catching it instead lets this procedure be
+$- called directly, which is how a workflow is tested without executing the whole graph.
+    BEGIN
+        grp_id := (SELECT SYSTEM$TASK_RUNTIME_INFO('CURRENT_ROOT_TASK_UUID'));
+    EXCEPTION
+        WHEN OTHER THEN
+            grp_id := (SELECT UUID_STRING());
+    END;
 
-    cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG('workflow'));
+$- Guarded separately from the run id above: this one also raises when the graph simply
+$- has no CONFIG set, and sharing a handler would replace a perfectly good run id with a
+$- fresh UUID and break correlation across the graph's task runs.
+$- The whole graph CONFIG, not one key out of it: the workflow name is passed explicitly
+$- below, and a hard-coded key name assumed a convention that nothing enforced. This is in
+$- scope for sql steps, which can read graph-level settings as :cfg.
+    BEGIN
+        cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG());
+    EXCEPTION
+        WHEN OTHER THEN
+            cfg := NULL;
+    END;
 
-    tr_id := (CALL metadata._TaskRunStarting('$task.name$', :grp_id, :cfg));
+$- The workflow name comes from the bindings, not from :cfg. _TaskRunStarting looks up a
+$- configuration by name, and :cfg holds the graph CONFIG document, so passing it meant the
+$- tie to the configuration never matched and every run reported an unknown workflow.
+    tr_id := (CALL metadata._TaskRunStarting($'task.name'$, :grp_id, $'WORKFLOW'$));
 $/ foreach step in task.steps
 $/ if step.type == "proc"
 
-    -- Execute: $step.description$
+    -- Execute: $|step.description|$
     CALL $step.call$;
 $/ endif
 $/ if step.type == "lineage"
 
-    -- Record lineage: $step.description$
-    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, '$step.source$', '$step.target$'));
+    -- Record lineage: $|step.description|$
+    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, $'step.source'$, $'step.target'$));
 $/ endif
 $/ if step.type == "sql"
 
-    -- $step.description$
-    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, '$step.lineage.source$', '$step.lineage.target$'));
+    -- $|step.description|$
+    op_id := (CALL metadata._TaskRunSourceToTarget(:tr_id, $'step.lineage.source'$, $'step.lineage.target'$));
     $step.sql$;
     row_count := SQLROWCOUNT;
     CALL metadata._TaskRunSetRows(:op_id, :row_count, 0, 0, 0);
 $/ endif
 $/ if step.type == "rows"
 
-    -- Log row counts: $step.description$
-    CALL metadata._TaskRunSetRows(:op_id, $step.inserted$, $step.updated$, $step.deleted$, $step.merged$);
+    -- Log row counts: $|step.description|$
+$- Counts are authored as numbers but reach this template from imported JSON too, so
+$- TRY_TO_NUMBER turns a non-numeric value into NULL rather than into SQL.
+    CALL metadata._TaskRunSetRows(:op_id, TRY_TO_NUMBER($'step.inserted'$), TRY_TO_NUMBER($'step.updated'$), TRY_TO_NUMBER($'step.deleted'$), TRY_TO_NUMBER($'step.merged'$));
 $/ endif
 $/ if step.type == "return_value"
 
     -- Pass return value to child tasks
-    CALL SYSTEM$SET_RETURN_VALUE('$step.message$');
+    CALL SYSTEM$SET_RETURN_VALUE($'step.message'$);
 $/ endif
 $/ endfor
 
+    CALL metadata._TaskRunFinished(:tr_id);
     RETURN 'OK';
+EXCEPTION
+    WHEN OTHER THEN
+        $- Record the failure, then re-raise so Snowflake still marks the task failed and
+        $- dependent tasks do not run. Without this the task run row stayed open and a
+        $- graph that failed every night looked healthy in the metadata.
+        CALL metadata._TaskRunFailed(:tr_id, :SQLERRM);
+        RAISE;
 END;
 $$;
 
@@ -85,15 +114,15 @@ CREATE OR REPLACE TASK $task.name$
 $/ if task.is_root == true
     SUSPEND_TASK_AFTER_NUM_FAILURES = $MAX_FAILURES$
 $/ endif
-    COMMENT = '$task.description$'
+    COMMENT = $'task.description'$
 $/ if task.schedule
-    SCHEDULE = '$task.schedule$'
+    SCHEDULE = $'task.schedule'$
 $/ endif
 $/ if task.after
     AFTER $/ foreach t in task.after $/ if t.first() $t.name$$/ else ,$t.name$$/ endif $/ endfor
 $/ endif
 $/ if task.is_root == true
-    CONFIG = '$CONFIG$'
+    CONFIG = $'CONFIG'$
 $/ endif
 AS
     CALL sp_$task.name$();

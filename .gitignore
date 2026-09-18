@@ -7,3 +7,12 @@ snowflake_cli_setup.png
 /webapp/.venv/
 /webapp/__pycache__/
 /__pycache__/
+
+# Rendered output from install --dry-run
+examples/rendered/
+rendered/
+
+# Cached Anchor Modeling generator assets (metadata/generate.js)
+metadata/.anchor/
+node_modules/
+package-lock.json

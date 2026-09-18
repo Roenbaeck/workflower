@@ -1,5 +1,5 @@
 // Quick local smoke test for sisula.js
-var sisulate = require('./webapp/sisula.js');
+var sisulate = require('../webapp/sisula.js');
 
 function test(name, template, bindings, expected) {
     var result = sisulate(template, bindings);
@@ -126,5 +126,31 @@ allPass = test('Nested loops',
     '$/ foreach t in tables\n$/ foreach c in t.columns\n$t.table$.$c.name$\n$/ endfor\n$/ endfor',
     '{"tables":[{"table":"T1","columns":[{"name":"C1"},{"name":"C2"}]}]}',
     'T1.C1\nT1.C2\n') && allPass;
+
+// Test 20: SQL literal token doubles single quotes
+allPass = test('SQL literal quote',
+    'COMMENT = $\'d\'$', '{"d":"O\'Brien"}', "COMMENT = 'O''Brien'") && allPass;
+
+// Test 21: SQL literal token escapes newline, backslash and dollar
+allPass = test('SQL literal newline',
+    '$\'d\'$', '{"d":"line1\\nline2"}', "'line1\\nline2'") && allPass;
+allPass = test('SQL literal backslash',
+    '$\'d\'$', '{"d":"a\\\\b"}', "'a\\\\b'") && allPass;
+allPass = test('SQL literal dollar',
+    '$\'d\'$', '{"d":"a$b"}', "'a\\x24b'") && allPass;
+
+// Test 22: missing path yields an empty literal, keeping the SQL valid
+allPass = test('SQL literal missing path',
+    'COMMENT = $\'nope\'$', '{}', "COMMENT = ''") && allPass;
+
+// Test 23: comment token flattens to one line and splits adjacent dollars
+allPass = test('Comment token newline',
+    '-- $|d|$', '{"d":"line1\\nline2"}', '-- line1 line2') && allPass;
+allPass = test('Comment token dollars',
+    '-- $|d|$', '{"d":"a$$b"}', '-- a$ $b') && allPass;
+
+// Test 24: a rendered value is never rescanned for tokens
+allPass = test('No rescan of rendered dollars',
+    '$|d|$ and $name$', '{"d":"$name$","name":"Bob"}', '$name$ and Bob') && allPass;
 
 console.log('\n' + (allPass ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED'));

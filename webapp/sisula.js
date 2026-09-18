@@ -13,8 +13,14 @@ var RE_ELSE = /^\s*\$\/\s*else\s*$/i;
 var RE_COMMENT_LINE = /^\s*\$-.*$/;
 var RE_INLINE_COMMENT = /\$-.*?-\$/g;
 
-// Use ASCII-safe token pattern for Snowflake's JS engine compatibility.
-var TOKEN_PATTERN = /\$\{?([A-Za-z0-9_]+(?:\[\d+\])?(?:\.[A-Za-z0-9_]+(?:\[\d+\])?)*(?:\(\))?)\}?\$/g;
+// Use ASCII-safe token patterns for Snowflake's JS engine compatibility.
+var PATH_SOURCE = "[A-Za-z0-9_]+(?:\\[\\d+\\])?(?:\\.[A-Za-z0-9_]+(?:\\[\\d+\\])?)*(?:\\(\\))?";
+// All three token forms in one pattern, so a single pass renders them. $'path'$ emits a
+// quoted SQL string literal and $|path|$ emits text that is safe on one SQL comment line.
+var TOKEN_PATTERN = new RegExp(
+    "\\$'(" + PATH_SOURCE + ")'\\$" +
+    "|\\$\\|(" + PATH_SOURCE + ")\\|\\$" +
+    "|\\$\\{?(" + PATH_SOURCE + ")\\}?\\$", "g");
 
 var RE_FUNC_CALL = /^(\w+)\s*\(([\s\S]*)\)$/;
 var RE_METHOD_CALL = /^(\w+)\.(first|last|index|count)\s*\(\s*\)\s*$/i;
@@ -458,11 +464,38 @@ function stringify(val) {
     return JSON.stringify(val);
 }
 
+// Quote a value as a Snowflake string literal. Doubling the single quote is not enough:
+// a backslash starts an escape sequence, a literal newline breaks the generated line, and
+// an embedded pair of dollars would close the procedure body. Every escape used here was
+// verified against Snowflake: \\ is a backslash, '' a quote, \n \r newlines, \x24 a dollar.
+function sqlLiteral(val) {
+    if (val === null || val === undefined) return "''";
+    var s = String(val);
+    // Backslashes first, so the escapes introduced below are not escaped again.
+    s = s.replace(/\\/g, "\\\\");
+    s = s.replace(/'/g, "''");
+    s = s.replace(/\r/g, "\\r");
+    s = s.replace(/\n/g, "\\n");
+    s = s.replace(/\$/g, "\\x24");
+    return "'" + s + "'";
+}
+
+// Flatten a value onto one line so it cannot escape a "--" comment, and separate adjacent
+// dollars so the text cannot close a dollar-quoted procedure body.
+function sqlComment(val) {
+    if (val === null || val === undefined) return "";
+    return String(val).replace(/[\r\n\t]+/g, " ").replace(/\$(?=\$)/g, "$ ");
+}
+
 function renderInline(text, ctx, loopVars) {
     if (!text) return "";
     TOKEN_PATTERN.lastIndex = 0;
-    return text.replace(TOKEN_PATTERN, function (match, path) {
-        var result = resolvePath(ctx, loopVars, path);
+    // One pass over all three forms. A second pass could reinterpret dollars that came
+    // from a rendered value rather than from the template.
+    return text.replace(TOKEN_PATTERN, function (match, literalPath, commentPath, plainPath) {
+        if (literalPath != null) return sqlLiteral(resolvePath(ctx, loopVars, literalPath));
+        if (commentPath != null) return sqlComment(resolvePath(ctx, loopVars, commentPath));
+        var result = resolvePath(ctx, loopVars, plainPath);
         return result !== null ? result : "";
     });
 }

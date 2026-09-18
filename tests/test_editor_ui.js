@@ -2,9 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { test } = require('node:test');
+const repo = require('./repo.js');
 
-const html = fs.readFileSync('webapp/index.html', 'utf8');
-const css = fs.readFileSync('webapp/editor.css', 'utf8');
+const html = fs.readFileSync(repo('webapp/index.html'), 'utf8');
+const css = fs.readFileSync(repo('webapp/editor.css'), 'utf8');
 const markup = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');
 
 function sourceBetween(start, end) {
