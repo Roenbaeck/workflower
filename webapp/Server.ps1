@@ -127,7 +127,8 @@ function Invoke-Route {
                -EnvironmentCfId $Context.Request.QueryString['environment']
     }
     if ($Path -match '^/api/workflows/(\d+)/validate$' -and $Method -eq 'POST') {
-        return Test-Workflow -Connection $Connection -CfId $Matches[1]
+        return Test-Workflow -Connection $Connection -CfId $Matches[1] `
+               -EnvironmentCfId $Context.Request.QueryString['environment']
     }
     if ($Path -match '^/api/workflows/(\d+)/tasks$' -and $Method -eq 'GET') {
         return Get-WorkflowTaskStates -Connection $Connection -CfId $Matches[1]

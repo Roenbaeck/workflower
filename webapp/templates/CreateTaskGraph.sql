@@ -48,8 +48,11 @@ $- called directly, which is how a workflow is tested without executing the whol
 $- Guarded separately from the run id above: this one also raises when the graph simply
 $- has no CONFIG set, and sharing a handler would replace a perfectly good run id with a
 $- fresh UUID and break correlation across the graph's task runs.
+$- The whole graph CONFIG, not one key out of it: the workflow name is passed explicitly
+$- below, and a hard-coded key name assumed a convention that nothing enforced. This is in
+$- scope for sql steps, which can read graph-level settings as :cfg.
     BEGIN
-        cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG('workflow'));
+        cfg := (SELECT SYSTEM$GET_TASK_GRAPH_CONFIG());
     EXCEPTION
         WHEN OTHER THEN
             cfg := NULL;

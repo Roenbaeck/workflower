@@ -797,6 +797,8 @@ DrawingEngine.init();
 // There is no session to establish. The server shells out to the Snowflake CLI, which
 // authenticates per invocation from the named profile, so this panel only reports who the
 // server is acting as.
+let connectionWarehouse = '';
+
 async function refreshConnectionStatus() {
   let status = getId('connection-status');
   if (!status) return;
@@ -804,6 +806,7 @@ async function refreshConnectionStatus() {
     let info = await window.fetch('/api/connection/status');
     let body = await info.json();
     if (!info.ok) throw new Error(body && body.detail ? body.detail : 'Snowflake is unreachable');
+    connectionWarehouse = body.warehouse || '';
     status.textContent = body.user + ' as ' + body.role + ' on ' + body.database + ' (' + body.warehouse + ')';
   } catch (e) {
     status.textContent = e.message || 'Snowflake is unreachable. Check the connection profile.';
@@ -977,7 +980,12 @@ function selectedEnvironment() {
 async function validateWorkflow() {
   if (!currentCfId) { showStatus('Save the workflow before validating', 'error'); return; }
   try {
-    let result = await api('/api/workflows/' + encodeURIComponent(currentCfId) + '/validate', { method: 'POST' });
+    // Validate the merge, so a workflow that takes its warehouse from the selected
+    // environment is not reported as missing one.
+    let environment = selectedEnvironment();
+    let result = await api('/api/workflows/' + encodeURIComponent(currentCfId) + '/validate' +
+                           (environment ? '?environment=' + encodeURIComponent(environment) : ''),
+                           { method: 'POST' });
     if (result.valid) { showStatus('Graph is valid', 'success'); return; }
     openInstallModal('Validate ' + current);
     appendInstallLog('The workflow graph is not valid:');
@@ -1317,7 +1325,10 @@ function newWorkflow() {
   if (data && dirty && !confirm('Discard unsaved changes and create a workflow?')) return;
   current = '__new__';
   currentCfId = null;
-  data = { WORKFLOW: 'NewWorkflow', WAREHOUSE: 'COMPUTE_WH', TASK_TIMEOUT: 3600000, MAX_FAILURES: 3, TASKS: [] };
+  // The connection's own warehouse, not a guess: COMPUTE_WH is a Snowflake sample name
+  // that need not exist, and a new workflow that names a missing warehouse fails at
+  // install for a reason the message does not make obvious.
+  data = { WORKFLOW: 'NewWorkflow', WAREHOUSE: connectionWarehouse || '', TASK_TIMEOUT: 3600000, MAX_FAILURES: 3, TASKS: [] };
   layoutState = { positions: {}, viewport: { ...DEFAULT_VIEWBOX } };
   selectedTask = 0;
   clearSqlPreview('Render SQL to preview the generated DDL.');

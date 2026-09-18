@@ -158,7 +158,7 @@ function Install-Workflow {
 
     # Validate first, so a cycle or a missing predecessor is reported as a list of problems
     # rather than as a half-applied install.
-    $check = Invoke-SnowSql -Sql "CALL metadata._ValidateWorkflowById($id);" -Connection $Connection
+    $check = Invoke-SnowSql -Sql "CALL metadata._ValidateWorkflowById($id, $env);" -Connection $Connection
     if ($check.Success) {
         $problems = ConvertFrom-JsonArray (Get-CallResult $check.Json)
         if ($problems.Count -gt 0) {
@@ -256,9 +256,12 @@ function Import-TaskGraphs {
 # Returns the array of problems, empty when the graph is sound.
 function Test-Workflow {
     param([Parameter(Mandatory = $true)][string] $Connection,
-          [Parameter(Mandatory = $true)] $CfId)
+          [Parameter(Mandatory = $true)] $CfId,
+          $EnvironmentCfId = $null)
     $id = Assert-Id $CfId
-    $result = Invoke-SnowSql -Sql "CALL metadata._ValidateWorkflowById($id);" -Connection $Connection
+    $env = 'NULL'
+    if ($EnvironmentCfId) { $env = Assert-Id $EnvironmentCfId }
+    $result = Invoke-SnowSql -Sql "CALL metadata._ValidateWorkflowById($id, $env);" -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
     $problems = ConvertFrom-JsonArray (Get-CallResult $result.Json)
     return New-ApiResult -Body ([pscustomobject]@{ cf_id = [int]$id; valid = ($problems.Count -eq 0); problems = $problems })

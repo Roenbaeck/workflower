@@ -9,7 +9,7 @@
       .\read.ps1 <connection_name> <directory> -Schema DATABASE.SCHEMA [-Root ROOT_TASK]
 
     Quote case-sensitive identifiers with SQL double quotes:
-      .\read.ps1 Teracom .\imported -Schema 'MY_DB."Mixed.Schema"' -Root '"Root Task"'
+      .\read.ps1 <connection_name> .\imported -Schema 'MY_DB."Mixed.Schema"' -Root '"Root Task"'
 #>
 [CmdletBinding()]
 param(

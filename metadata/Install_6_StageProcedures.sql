@@ -211,6 +211,16 @@ if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return ['Workflow JSO
 if (!doc.WORKFLOW) fail('WORKFLOW name is missing');
 
 var tasks = doc.TASKS;
+// An authored task needs a warehouse; a native one carries its own in its DDL header. An
+// empty WAREHOUSE renders as "WAREHOUSE = " and fails with a bare syntax error, so name it
+// here instead. The value may come from an environment, so validate against the merge.
+if (Object.prototype.toString.call(tasks) === '[object Array]') {
+    var needsWarehouse = false;
+    for (var w = 0; w < tasks.length; w++) if (tasks[w] && !tasks[w].native) needsWarehouse = true;
+    if (needsWarehouse && !doc.WAREHOUSE) {
+        fail('WAREHOUSE is not set. Set it on the workflow or supply it from an environment.');
+    }
+}
 if (Object.prototype.toString.call(tasks) !== '[object Array]') return ['TASKS must be an array'];
 if (!tasks.length) return ['TASKS is empty; a workflow needs at least one task'];
 
@@ -323,13 +333,19 @@ $$;
 
 -- Validate a stored configuration. The editor calls this before installing so the problems
 -- can be listed, rather than discovering them when Snowflake rejects the DDL.
-CREATE OR REPLACE PROCEDURE metadata._ValidateWorkflowById(CF_ID INT)
+-- ENV_CF_ID validates the merge rather than the workflow alone, so a workflow that takes
+-- its warehouse from an environment is not reported as missing one.
+DROP PROCEDURE IF EXISTS metadata._ValidateWorkflowById(INT);
+
+CREATE OR REPLACE PROCEDURE metadata._ValidateWorkflowById(CF_ID INT, ENV_CF_ID INT DEFAULT NULL)
 RETURNS VARIANT
 LANGUAGE SQL
 AS
 $$
 DECLARE
     config_text VARCHAR;
+    env_text VARCHAR;
+    merged VARCHAR;
     problems VARIANT;
     no_config EXCEPTION (-20006, 'Configuration not found');
 BEGIN
@@ -338,7 +354,28 @@ BEGIN
     WHERE CF_ID = :CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
     IF (config_text IS NULL) THEN RAISE no_config; END IF;
 
-    problems := (CALL metadata._ValidateWorkflow(:config_text));
+    merged := :config_text;
+    IF (ENV_CF_ID IS NOT NULL) THEN
+        SELECT CF_CNT_Configuration_Content INTO :env_text
+        FROM metadata.lCF_Configuration
+        WHERE CF_ID = :ENV_CF_ID AND CF_TYP_CFT_ConfigurationType = 'Environment';
+        IF (env_text IS NOT NULL) THEN
+            merged := (
+                SELECT TO_JSON(OBJECT_AGG(key, value))
+                FROM (
+                    SELECT key, value
+                    FROM (
+                        SELECT key, value, 1 AS priority FROM TABLE(FLATTEN(input => PARSE_JSON(:config_text)))
+                        UNION ALL
+                        SELECT key, value, 2            FROM TABLE(FLATTEN(input => PARSE_JSON(:env_text)))
+                    )
+                    QUALIFY ROW_NUMBER() OVER (PARTITION BY key ORDER BY priority DESC) = 1
+                )
+            );
+        END IF;
+    END IF;
+
+    problems := (CALL metadata._ValidateWorkflow(:merged));
     RETURN problems;
 END;
 $$;
