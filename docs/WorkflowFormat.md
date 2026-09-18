@@ -104,6 +104,14 @@ Each step has a `type` field and a `description`. The type determines which addi
 | `deleted` | Rows deleted |
 | `merged` | Rows merged |
 
+**A `rows` step must follow a `lineage` or `sql` step in the same task.** Its counts attach
+to the operation that step opened; with no operation to attach to there is nothing to
+record against. Validation rejects the wrong ordering, and the logging procedure ignores a
+missing operation rather than failing the task.
+
+Counts are read with `TRY_TO_NUMBER`, so a non-numeric value from imported JSON becomes
+null rather than becoming SQL.
+
 ### `return_value` — pass a message to child tasks
 
 ```json
@@ -114,6 +122,29 @@ Each step has a `type` field and a `description`. The type determines which addi
 ```
 
 Child tasks can retrieve this with `SYSTEM$GET_PREDECESSOR_RETURN_VALUE('parent_task_name')`.
+
+`SYSTEM$SET_RETURN_VALUE` cannot be called from a SQL stored procedure — Snowflake rejects
+functions with side effects there, and a task whose body was a plain `CALL sp_<task>()`
+failed at run time. The step therefore sets the message as the procedure's return value,
+and the task body publishes it:
+
+```sql
+CREATE OR REPLACE TASK <task> ... AS
+EXECUTE IMMEDIATE $$
+DECLARE
+    return_value VARCHAR;
+BEGIN
+    return_value := (CALL sp_<task>());
+    IF (return_value IS NOT NULL) THEN
+        CALL SYSTEM$SET_RETURN_VALUE(:return_value);
+    END IF;
+    RETURN return_value;
+END;
+$$;
+```
+
+A task with no `return_value` step returns null and publishes nothing. With several, the
+last one wins.
 
 ## Execution model
 

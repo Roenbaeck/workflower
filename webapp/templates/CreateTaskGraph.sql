@@ -34,6 +34,7 @@ DECLARE
     grp_id VARCHAR;
     row_count INT;
     cfg VARCHAR;
+    return_value VARCHAR;
 BEGIN
 $- SYSTEM$TASK_RUNTIME_INFO raises outside a task rather than returning null, so a
 $- COALESCE around it can never fall back. Catching it instead lets this procedure be
@@ -90,13 +91,16 @@ $- TRY_TO_NUMBER turns a non-numeric value into NULL rather than into SQL.
 $/ endif
 $/ if step.type == "return_value"
 
-    -- Pass return value to child tasks
-    CALL SYSTEM$SET_RETURN_VALUE($'step.message'$);
+    -- Pass return value to child tasks. SYSTEM$SET_RETURN_VALUE cannot be called from a
+    -- SQL stored procedure, which rejects functions with side effects, so the message is
+    -- returned to the task body and set there instead.
+    return_value := $'step.message'$;
 $/ endif
 $/ endfor
 
     CALL metadata._TaskRunFinished(:tr_id);
-    RETURN 'OK';
+    $- Null unless a return_value step set one; the task body only publishes a non-null.
+    RETURN return_value;
 EXCEPTION
     WHEN OTHER THEN
         $- Record the failure, then re-raise so Snowflake still marks the task failed and
@@ -124,8 +128,21 @@ $/ endif
 $/ if task.is_root == true
     CONFIG = $'CONFIG'$
 $/ endif
+$- The body is a scripting block, not a bare CALL, because SYSTEM$SET_RETURN_VALUE is
+$- rejected inside a SQL stored procedure and has to be called here. EXECUTE IMMEDIATE
+$- with dollar quoting is how a task body holds a multi-statement block.
 AS
-    CALL sp_$task.name$();
+EXECUTE IMMEDIATE $$
+DECLARE
+    return_value VARCHAR;
+BEGIN
+    return_value := (CALL sp_$task.name$());
+    IF (return_value IS NOT NULL) THEN
+        CALL SYSTEM$SET_RETURN_VALUE(:return_value);
+    END IF;
+    RETURN return_value;
+END;
+$$;
 $/ endif
 
 $/ endfor

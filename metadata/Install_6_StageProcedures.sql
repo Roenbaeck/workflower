@@ -324,6 +324,18 @@ for (var t in byName) {
         if (step.type === 'sql' && (!step.lineage || !step.lineage.source || !step.lineage.target)) {
             fail(where + ' (sql) is missing lineage.source or lineage.target');
         }
+        // A rows step attaches counts to the operation opened by a preceding lineage or sql
+        // step. Without one there is no operation, and the task failed at run time on a
+        // non-nullable column -- which only showed up when a real task graph was executed.
+        if (step.type === 'rows') {
+            var opened = false;
+            for (var pi = 0; pi < si; pi++) {
+                if (steps[pi] && (steps[pi].type === 'lineage' || steps[pi].type === 'sql')) opened = true;
+            }
+            if (!opened) {
+                fail(where + ' (rows) has no preceding lineage or sql step to attach its counts to');
+            }
+        }
     }
 }
 
