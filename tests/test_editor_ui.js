@@ -105,6 +105,53 @@ test('markup has unique IDs and accessible tab targets', () => {
   assert.match(css, /\.tab-content\s*\{[^}]*overflow: auto/);
 });
 
+// The minimap framed itself on the graph alone, so whenever the view was wider than the
+// graph -- the normal state for a freshly laid out workflow -- the viewport rectangle fell
+// outside the frame and was clipped to a stray line.
+function drawMinimapWith(bounds, view) {
+  const svg = { children: [], firstChild: null, attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    appendChild(child) { this.children.push(child); },
+    removeChild() {} };
+  const context = vm.createContext({
+    svgNS: 'http://www.w3.org/2000/svg',
+    edges: [], selectedTask: 0, nodeMap: {}, data: { TASKS: [] },
+    taskId: () => 'x',
+    ensureMiniSvg: () => svg,
+    getGraphBounds: () => bounds,
+    currentViewBox: () => view,
+    document: { createElementNS: (ns, tag) => ({ tag, attributes: {}, setAttribute(n, v) { this.attributes[n] = v; } }) },
+  });
+  vm.runInContext(sourceBetween('function drawMiniMap(', 'function screenToMiniature('), context);
+  context.drawMiniMap();
+  const frame = svg.attributes.viewBox.split(' ').map(Number);
+  const rect = svg.children.find((child) => child.attributes.class === 'mini-viewport').attributes;
+  return { frame, rect };
+}
+
+function contains(frame, rect) {
+  return rect.x >= frame[0] && rect.y >= frame[1]
+      && rect.x + rect.width <= frame[0] + frame[2]
+      && rect.y + rect.height <= frame[1] + frame[3];
+}
+
+test('the minimap always shows the viewport, however far it is from the graph', () => {
+  const graph = { x: 200, y: 50, width: 400, height: 300 };
+
+  // Zoomed out past the graph: the case that used to clip the rectangle away.
+  let drawn = drawMinimapWith(graph, { x: 0, y: 0, width: 800, height: 450 });
+  assert.ok(contains(drawn.frame, drawn.rect), 'viewport escaped the frame when zoomed out');
+
+  // Zoomed in: the rectangle is a small window on the graph.
+  drawn = drawMinimapWith(graph, { x: 300, y: 150, width: 120, height: 90 });
+  assert.ok(contains(drawn.frame, drawn.rect), 'viewport escaped the frame when zoomed in');
+
+  // Panned clear of the graph: both still have to fit.
+  drawn = drawMinimapWith(graph, { x: 2000, y: 1500, width: 120, height: 90 });
+  assert.ok(contains(drawn.frame, drawn.rect), 'viewport escaped the frame when panned away');
+  assert.ok(drawn.frame[0] <= graph.x && drawn.frame[1] <= graph.y, 'graph dropped out of the frame');
+});
+
 test('the split handle sits between the panes and is reachable without a mouse', () => {
   // Grid column order follows DOM order, so the handle must fall between them.
   assert.ok(markup.indexOf('class="canvas-pane"') < markup.indexOf('id="split-handle"'));

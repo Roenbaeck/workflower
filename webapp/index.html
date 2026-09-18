@@ -697,7 +697,25 @@ function drawMiniMap() {
   while (miniatureSvg.firstChild) miniatureSvg.removeChild(miniatureSvg.firstChild);
 
   let bounds = getGraphBounds();
-  miniatureSvg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+  let view = currentViewBox();
+
+  // A navigator has to show where you are even when the view is wider than the graph, so
+  // the minimap spans the union of the two. Framing it on the graph alone clipped the
+  // viewport rectangle away whenever you were zoomed out far enough to see everything,
+  // which is the normal state for a freshly laid out workflow.
+  let left = Math.min(bounds.x, view.x);
+  let top = Math.min(bounds.y, view.y);
+  let right = Math.max(bounds.x + bounds.width, view.x + view.width);
+  let bottom = Math.max(bounds.y + bounds.height, view.y + view.height);
+  // A little slack so the rectangle's stroke is not shaved off at the edge.
+  let margin = Math.max(right - left, bottom - top) * 0.02;
+  let frame = {
+    x: left - margin,
+    y: top - margin,
+    width: (right - left) + margin * 2,
+    height: (bottom - top) + margin * 2,
+  };
+  miniatureSvg.setAttribute('viewBox', `${frame.x} ${frame.y} ${frame.width} ${frame.height}`);
 
   function mini(tag, attrs) {
     let el = document.createElementNS(svgNS, tag);
@@ -707,10 +725,10 @@ function drawMiniMap() {
 
   miniatureSvg.appendChild(mini('rect', {
     class: 'mini-backdrop',
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
+    x: frame.x,
+    y: frame.y,
+    width: frame.width,
+    height: frame.height,
     rx: 24,
     ry: 24,
   }));
@@ -736,13 +754,12 @@ function drawMiniMap() {
     }));
   });
 
-  let viewBox = currentViewBox();
   miniatureSvg.appendChild(mini('rect', {
     class: 'mini-viewport',
-    x: viewBox.x,
-    y: viewBox.y,
-    width: viewBox.width,
-    height: viewBox.height,
+    x: view.x,
+    y: view.y,
+    width: view.width,
+    height: view.height,
     rx: 10,
     ry: 10,
   }));
