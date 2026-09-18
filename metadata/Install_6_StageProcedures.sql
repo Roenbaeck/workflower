@@ -149,9 +149,12 @@ DECLARE
     status VARCHAR;
     no_config EXCEPTION (-20006, 'Configuration not found');
 BEGIN
+    -- Deliberately not filtered by type: an identity is an identity, and environments are
+    -- configurations too. Filtering on 'Workflow' here meant an environment could be
+    -- created and listed but never deleted.
     SELECT CF_NAM_Configuration_Name INTO :wf_name
     FROM metadata.lCF_Configuration
-    WHERE CF_ID = :CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+    WHERE CF_ID = :CF_ID;
     IF (wf_name IS NULL) THEN RAISE no_config; END IF;
 
     status := (CALL metadata._ConfigurationDelete(:wf_name));

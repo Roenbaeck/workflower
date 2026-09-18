@@ -96,6 +96,17 @@ a configuration whose keys are merged over the workflow's own at render time:
 install with. Environment keys win over the workflow's, and the whole environment is also
 exposed to templates as `$ENV.<key>$`.
 
+Changing where something runs is then a two-step loop that never touches the workflow:
+
+1. `PUT /api/environments` with the same `NAME` — it upserts in place, keeping its `CF_ID`.
+2. Reinstall the workflow with that environment selected.
+
+The rendered DDL picks up the new values and the stored workflow is unchanged, so the same
+definition can be pointed at a different warehouse, timeout or failure cap per environment.
+Because a task's warehouse comes from its DDL rather than from your connection, moving
+existing tasks to another warehouse means reinstalling them — which is exactly what this
+loop is for.
+
 ### Validation
 
 A graph is validated before anything is rendered: duplicate names, predecessors that do

@@ -55,18 +55,19 @@ ORDER BY CF_NAM_Configuration_Name;
 
 function Get-Workflow {
     param([Parameter(Mandatory = $true)][string] $Connection,
-          [Parameter(Mandatory = $true)] $CfId)
+          [Parameter(Mandatory = $true)] $CfId,
+          [ValidateSet('Workflow', 'Environment')][string] $ConfigType = 'Workflow')
     $id = Assert-Id $CfId
     $sql = @"
 SELECT CF_ID, CF_NAM_Configuration_Name AS NAME, CF_CNT_Configuration_Content AS CONTENT
 FROM metadata.lCF_Configuration
-WHERE CF_ID = $id AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+WHERE CF_ID = $id AND CF_TYP_CFT_ConfigurationType = '$ConfigType';
 "@
     $result = Invoke-SnowSql -Sql $sql -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
 
     $row = @($result.Json)[0]
-    if ($null -eq $row) { return New-ApiError -Status 404 -Detail 'Workflow not found' }
+    if ($null -eq $row) { return New-ApiError -Status 404 -Detail "$ConfigType not found" }
     return New-ApiResult -Body ([pscustomobject]@{
         cf_id = $row.CF_ID; name = $row.NAME; content = $row.CONTENT
     })

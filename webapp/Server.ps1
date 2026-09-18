@@ -111,6 +111,12 @@ function Invoke-Route {
     if ($Path -eq '/api/environments' -and $Method -eq 'GET') {
         return Get-Environments -Connection $Connection
     }
+    # An environment is a configuration, so it is read and deleted by id like a workflow;
+    # the type filter is what keeps the two listings apart.
+    if ($Path -match '^/api/environments/(\d+)$') {
+        if ($Method -eq 'GET')    { return Get-Workflow -Connection $Connection -CfId $Matches[1] -ConfigType 'Environment' }
+        if ($Method -eq 'DELETE') { return Remove-Workflow -Connection $Connection -CfId $Matches[1] }
+    }
     if ($Path -eq '/api/environments' -and $Method -eq 'PUT') {
         # An environment is a configuration too; it names itself with NAME.
         return Save-Workflow -Connection $Connection -Body (Read-RequestBody $Context) `
