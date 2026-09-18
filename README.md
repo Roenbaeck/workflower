@@ -92,9 +92,13 @@ a configuration whose keys are merged over the workflow's own at render time:
 { "NAME": "production", "WAREHOUSE": "ETL_WH", "TASK_TIMEOUT": 7200000, "MAX_FAILURES": 1 }
 ```
 
-`PUT /api/environments` stores one; the editor's environment picker chooses which to
-install with. Environment keys win over the workflow's, and the whole environment is also
-exposed to templates as `$ENV.<key>$`.
+**More → Environments…** creates, edits and deletes them; the picker beside Install chooses
+which to install with. Environment keys win over the workflow's, and the whole environment
+is also exposed to templates as `$ENV.<key>$`.
+
+An environment is edited as JSON rather than through a form, because its keys are whatever
+top-level fields a workflow understands — there is no fixed set to lay out. Renaming one
+retires the old configuration in the same call, as a workflow rename does.
 
 Changing where something runs is then a two-step loop that never touches the workflow:
 
@@ -187,6 +191,10 @@ configuration procedures, and seeds the `CreateTaskGraph` template.
 ```
 
 Serves the editor on `http://localhost:8000/`.
+
+The divider between the task graph and the inspector is draggable — double-click to reset,
+or focus it and use the arrow keys (`Shift` for larger steps, `Home` to reset). The width is
+remembered per browser, and the graph always keeps a usable strip however far you drag.
 
 ### 4. Render or deploy workflow SQL from JSON
 

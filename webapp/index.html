@@ -62,6 +62,7 @@
         <details class="action-menu" id="workflow-menu">
           <summary title="Workflow actions">More</summary>
           <div class="action-menu-items">
+            <button class="btn-render" id="btn-edit-environments" onclick="openEnvironmentEditor()">Environments…</button>
             <button class="btn-render" id="btn-validate" onclick="validateWorkflow()">Validate graph</button>
             <button class="btn-render" id="btn-operate" onclick="openOperations()">Task states…</button>
             <button class="btn-export" id="btn-export-json" onclick="exportJson()">Export JSON</button>
@@ -107,6 +108,10 @@
         </div>
         <div class="metrics" id="metrics"></div>
       </section>
+
+      <div id="split-handle" role="separator" aria-orientation="vertical" aria-label="Resize the inspector"
+           tabindex="0" aria-valuemin="280" aria-valuemax="1200" aria-valuenow="360"
+           title="Drag to resize, double-click to reset"></div>
 
       <aside id="inspector" aria-label="Workflow inspector">
         <div class="inspector-heading">
@@ -169,6 +174,34 @@
 <div id="status" role="status" aria-live="polite"></div>
 <input id="workflow-import-input" type="file" accept=".json,application/json" onchange="importWorkflowFile(event)" hidden>
 <input id="template-file-input" type="file" accept=".sisula,.sql,text/plain" onchange="importTemplateFile(event)" hidden>
+<div id="environment-modal" class="plain-modal" aria-hidden="true">
+  <div class="plain-modal-panel" role="dialog" aria-modal="true" aria-labelledby="environment-modal-title">
+    <div class="plain-modal-header">
+      <div id="environment-modal-title">Environments</div>
+      <button type="button" class="icon-button" onclick="closeEnvironmentEditor()" aria-label="Close">&times;</button>
+    </div>
+    <div class="plain-modal-body">
+      <p class="sidebar-note">An environment's keys are merged over a workflow's own when you install with it selected, so the same definition can target a different warehouse, timeout or failure cap. Give it a <code>NAME</code>; everything else mirrors a workflow's top-level fields.</p>
+      <div class="form-group">
+        <label for="env-picker">Environment</label>
+        <select id="env-picker" onchange="loadEnvironmentIntoEditor()">
+          <option value="">New environment…</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="env-json">Definition (JSON)</label>
+        <textarea id="env-json" rows="12" spellcheck="false" placeholder='{ "NAME": "production", "WAREHOUSE": "WORKFLOWER_WH" }'></textarea>
+      </div>
+      <p id="env-editor-status" role="status"></p>
+    </div>
+    <div class="plain-modal-footer">
+      <button type="button" class="btn-delete" id="btn-env-delete" onclick="deleteEnvironment()">Delete</button>
+      <button type="button" class="primary-button" onclick="saveEnvironment()">Save environment</button>
+      <button type="button" onclick="closeEnvironmentEditor()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="install-modal" aria-hidden="true">
   <div id="install-modal-panel" role="dialog" aria-modal="true" aria-labelledby="install-modal-title">
     <div id="install-modal-header">
@@ -959,6 +992,98 @@ async function saveWorkflow() {
   }
 }
 
+// --- Resizable inspector ---
+
+const INSPECTOR_WIDTH_KEY = 'sisula-webapp:inspector-width';
+const INSPECTOR_DEFAULT_WIDTH = 360;
+const INSPECTOR_MIN_WIDTH = 280;
+
+function inspectorWidthLimits() {
+  let editor = getId('editor');
+  let total = editor ? editor.clientWidth : window.innerWidth;
+  // Always leave the graph a usable strip, whatever the window size.
+  return { min: INSPECTOR_MIN_WIDTH, max: Math.max(INSPECTOR_MIN_WIDTH, total - 320) };
+}
+
+function setInspectorWidth(px, persist) {
+  let editor = getId('editor');
+  if (!editor) return;
+  let limits = inspectorWidthLimits();
+  let width = Math.round(Math.min(limits.max, Math.max(limits.min, px)));
+  editor.style.setProperty('--inspector-width', width + 'px');
+  let handle = getId('split-handle');
+  if (handle) {
+    handle.setAttribute('aria-valuenow', String(width));
+    handle.setAttribute('aria-valuemax', String(limits.max));
+  }
+  if (persist) {
+    try { localStorage.setItem(INSPECTOR_WIDTH_KEY, String(width)); } catch (e) { /* private mode */ }
+  }
+  // The minimap is sized from the canvas, so it has to follow, but it reads the open
+  // workflow and the inspector is resizable before one is loaded.
+  if (data) drawMiniMap();
+}
+
+function currentInspectorWidth() {
+  let inspector = getId('inspector');
+  return inspector ? inspector.getBoundingClientRect().width : INSPECTOR_DEFAULT_WIDTH;
+}
+
+function restoreInspectorWidth() {
+  let stored = null;
+  try { stored = localStorage.getItem(INSPECTOR_WIDTH_KEY); } catch (e) { /* private mode */ }
+  let width = parseInt(stored, 10);
+  setInspectorWidth(isNaN(width) ? INSPECTOR_DEFAULT_WIDTH : width, false);
+}
+
+function initInspectorResize() {
+  let handle = getId('split-handle');
+  let editor = getId('editor');
+  if (!handle || !editor) return;
+
+  let dragging = false;
+
+  handle.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    handle.setPointerCapture(event.pointerId);
+    editor.classList.add('resizing');
+    event.preventDefault();
+  });
+
+  handle.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    // Width is measured from the right edge, so the inspector follows the pointer.
+    setInspectorWidth(editor.getBoundingClientRect().right - event.clientX, false);
+  });
+
+  const stop = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    if (event.pointerId !== undefined && handle.hasPointerCapture(event.pointerId)) {
+      handle.releasePointerCapture(event.pointerId);
+    }
+    editor.classList.remove('resizing');
+    setInspectorWidth(currentInspectorWidth(), true);
+  };
+  handle.addEventListener('pointerup', stop);
+  handle.addEventListener('pointercancel', stop);
+
+  handle.addEventListener('dblclick', () => setInspectorWidth(INSPECTOR_DEFAULT_WIDTH, true));
+
+  // Keyboard equivalent, since a drag handle is unusable without one.
+  handle.addEventListener('keydown', (event) => {
+    let step = event.shiftKey ? 50 : 10;
+    if (event.key === 'ArrowLeft') setInspectorWidth(currentInspectorWidth() + step, true);
+    else if (event.key === 'ArrowRight') setInspectorWidth(currentInspectorWidth() - step, true);
+    else if (event.key === 'Home') setInspectorWidth(INSPECTOR_DEFAULT_WIDTH, true);
+    else return;
+    event.preventDefault();
+  });
+
+  // Re-clamp when the window shrinks, so the graph cannot be squeezed away.
+  window.addEventListener('resize', () => setInspectorWidth(currentInspectorWidth(), false));
+}
+
 // --- Environments, validation, operation and run history ---
 
 // An environment is a stored configuration whose keys are merged over the workflow at
@@ -979,6 +1104,120 @@ async function loadEnvironments() {
     if (chosen) select.value = chosen;
   } catch (e) {
     // The picker is optional; an unreachable server is reported elsewhere.
+  }
+}
+
+// --- Environment editor ---
+// An environment is a stored configuration like a workflow, so it is edited as JSON rather
+// than through a form: its keys are whatever top-level fields a workflow understands.
+
+let environmentList = [];
+
+function setEnvironmentStatus(message, kind) {
+  let status = getId('env-editor-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.className = kind || '';
+}
+
+async function openEnvironmentEditor() {
+  let modal = getId('environment-modal');
+  if (!modal) return;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+  setEnvironmentStatus('');
+  try {
+    environmentList = await (await window.fetch('/api/environments')).json() || [];
+  } catch (e) {
+    environmentList = [];
+    setEnvironmentStatus(e.message || 'Could not load environments', 'error');
+  }
+  let picker = getId('env-picker');
+  picker.innerHTML = '<option value="">New environment…</option>';
+  environmentList.forEach((environment) => {
+    let option = document.createElement('option');
+    option.value = environment.cf_id;
+    option.textContent = environment.name;
+    picker.appendChild(option);
+  });
+  // Open on whichever environment is selected for installing, if any.
+  let chosen = selectedEnvironment();
+  if (chosen && environmentList.some((e) => String(e.cf_id) === String(chosen))) picker.value = chosen;
+  await loadEnvironmentIntoEditor();
+}
+
+function closeEnvironmentEditor() {
+  let modal = getId('environment-modal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+async function loadEnvironmentIntoEditor() {
+  let picker = getId('env-picker');
+  let editor = getId('env-json');
+  let deleteButton = getId('btn-env-delete');
+  setEnvironmentStatus('');
+  if (!picker.value) {
+    editor.value = JSON.stringify({ NAME: 'new-environment', WAREHOUSE: connectionWarehouse || '' }, null, 2);
+    deleteButton.disabled = true;
+    return;
+  }
+  deleteButton.disabled = false;
+  try {
+    let environment = await api('/api/environments/' + encodeURIComponent(picker.value));
+    editor.value = JSON.stringify(JSON.parse(environment.content), null, 2);
+  } catch (e) {
+    setEnvironmentStatus(e.message || 'Could not read that environment', 'error');
+  }
+}
+
+async function saveEnvironment() {
+  let picker = getId('env-picker');
+  let editor = getId('env-json');
+  let parsed;
+  try {
+    parsed = JSON.parse(editor.value);
+  } catch (e) {
+    setEnvironmentStatus('That is not valid JSON: ' + e.message, 'error');
+    return;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed.NAME) {
+    setEnvironmentStatus('An environment needs a NAME.', 'error');
+    return;
+  }
+  try {
+    // Pass the id being edited so a rename retires the old one instead of leaving two.
+    let previous = picker.value ? '?previous=' + encodeURIComponent(picker.value) : '';
+    let saved = await api('/api/environments' + previous, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parsed)
+    });
+    setEnvironmentStatus('Saved ' + saved.name, 'success');
+    await loadEnvironments();
+    let current = String(saved.cf_id);
+    await openEnvironmentEditor();
+    getId('env-picker').value = current;
+    await loadEnvironmentIntoEditor();
+    setEnvironmentStatus('Saved ' + saved.name, 'success');
+  } catch (e) {
+    setEnvironmentStatus(e.message || 'Save failed', 'error');
+  }
+}
+
+async function deleteEnvironment() {
+  let picker = getId('env-picker');
+  if (!picker.value) return;
+  let name = picker.selectedOptions[0] ? picker.selectedOptions[0].textContent : 'this environment';
+  if (!confirm('Delete environment "' + name + '"? Workflows installed with it keep the DDL they already have.')) return;
+  try {
+    await api('/api/environments/' + encodeURIComponent(picker.value), { method: 'DELETE' });
+    await loadEnvironments();
+    await openEnvironmentEditor();
+    setEnvironmentStatus('Deleted ' + name, 'success');
+  } catch (e) {
+    setEnvironmentStatus(e.message || 'Delete failed', 'error');
   }
 }
 
@@ -1950,8 +2189,19 @@ function toggleLibrary(open) {
   else if (wasExpanded && window.matchMedia('(max-width: 1000px)').matches) getId('btn-library').focus();
 }
 
+// The expand button and the drag handle move the same width, so this remembers what the
+// inspector was before expanding rather than toggling a separate layout.
+let inspectorWidthBeforeExpand = null;
+
 function toggleInspectorWidth() {
-  let expanded = getId('editor').classList.toggle('inspector-wide');
+  let editor = getId('editor');
+  let expanded = editor.classList.toggle('inspector-wide');
+  if (expanded) {
+    inspectorWidthBeforeExpand = currentInspectorWidth();
+    setInspectorWidth(inspectorWidthLimits().max, false);
+  } else {
+    setInspectorWidth(inspectorWidthBeforeExpand || INSPECTOR_DEFAULT_WIDTH, true);
+  }
   let button = getId('btn-inspector-expand');
   button.setAttribute('aria-pressed', String(expanded));
   button.title = expanded ? 'Restore inspector width' : 'Expand inspector';
@@ -2418,6 +2668,9 @@ if (!templateText || templateName === BUNDLED_TEMPLATE_NAME) {
 }
 // Sequential, not parallel: the server handles one request at a time and each shells out
 // to the Snowflake CLI, so firing these together only makes the last one wait.
+restoreInspectorWidth();
+initInspectorResize();
+
 loadWorkflows(true)
   .catch((e) => console.error('loadWorkflows failed:', e))
   .then(() => refreshConnectionStatus())

@@ -99,6 +99,20 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
 #install-log { padding: 16px; overflow: auto; min-height: 0; flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 'IBM Plex Mono', Consolas, monospace; color: #b8e5c8; }
 #install-modal-footer { display: flex; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid #46524b; }
 
+/* A light dialog, unlike the install log which is a dark console. */
+.plain-modal { display: none; position: fixed; inset: 0; align-items: center; justify-content: center; padding: 20px; background: #20272599; z-index: 140; }
+.plain-modal.show { display: flex; }
+.plain-modal-panel { width: min(640px, 100%); max-height: 85dvh; display: flex; flex-direction: column; overflow: hidden; background: #fff; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); }
+.plain-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); font-weight: 600; }
+.plain-modal-body { padding: 16px; overflow: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.plain-modal-body textarea { width: 100%; padding: 9px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: 12px/1.6 'IBM Plex Mono', Consolas, monospace; resize: vertical; }
+.plain-modal-body select { width: 100%; padding: 8px 9px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; }
+.plain-modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line-soft); }
+.plain-modal-footer .btn-delete { margin-right: auto; color: var(--danger); }
+#env-editor-status { font-size: 12px; color: var(--text-muted); min-height: 1.2em; }
+#env-editor-status.error { color: var(--danger); }
+#env-editor-status.success { color: var(--accent); }
+
 #app { grid-template-columns: 216px minmax(0, 1fr); height: 100vh; height: 100dvh; min-height: 0; }
 #sidebar { background: #f3f5f5; color: var(--text-main); border-right: 1px solid var(--line-strong); padding: 18px 12px 12px; gap: 8px; box-shadow: none; min-height: 0; }
 .sidebar-brand { gap: 8px; margin: 0 4px 17px; }
@@ -137,6 +151,12 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
 .actions .btn-save { background: var(--accent); box-shadow: none; border: 1px solid var(--accent); }
 .actions .btn-save:hover { background: var(--accent-strong); }
 .actions .btn-install { color: #fff; background: #303a3e; box-shadow: none; border: 1px solid #303a3e; }
+/* The environment picker sits among the header buttons, so it is shaped like one rather
+   than like a native form control: same height, radius, border and type, with its own
+   chevron since appearance:none removes the platform one. */
+.actions select { -webkit-appearance: none; appearance: none; min-height: 34px; padding: 7px 28px 7px 10px; color: var(--text-main); background-color: #fff; border: 1px solid var(--line-strong); border-radius: 5px; font: 500 13px/1.4 'IBM Plex Sans', 'Segoe UI', sans-serif; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23646d72' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; max-width: 170px; text-overflow: ellipsis; }
+.actions select:hover { background-color: #f0f3f3; }
+
 .action-menu { position: relative; }
 .action-menu summary { border: 1px solid var(--line-strong); padding: 7px 10px; min-height: 34px; font-size: 13px; border-radius: 5px; }
 .action-menu-items { position: absolute; top: calc(100% + 8px); right: 0; width: 210px; padding: 5px; background: #fff; border: 1px solid var(--line-strong); box-shadow: 0 8px 24px #24282b21; border-radius: 6px; z-index: 10; }
@@ -144,8 +164,17 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
 .actions .action-menu-items button:hover { background: #f0f3f3; }
 .actions .action-menu-items .btn-delete { color: var(--danger); border-top: 1px solid var(--line-soft); }
 
-#editor { display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; gap: 0; overflow: hidden; }
-#editor.inspector-wide { grid-template-columns: minmax(220px, 1fr) minmax(360px, 55%); }
+/* The inspector width is a variable so the drag handle, the expand button and the stored
+   preference all move the same thing. */
+#editor { display: grid; grid-template-columns: minmax(0, 1fr) 5px var(--inspector-width, 360px); flex: 1; min-height: 0; gap: 0; overflow: hidden; }
+
+#split-handle { cursor: col-resize; background: var(--line-strong); position: relative; z-index: 4; }
+/* A 5px bar is hard to hit, so widen only the pointer target. */
+#split-handle::before { content: ''; position: absolute; inset: 0 -4px; }
+#split-handle:hover, #split-handle:focus-visible { background: var(--accent); outline: none; }
+#editor.resizing { user-select: none; cursor: col-resize; }
+/* Stop the iframe-less SVG canvas from swallowing pointer events mid-drag. */
+#editor.resizing #graph-container { pointer-events: none; }
 .canvas-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .canvas-heading, .inspector-heading { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; gap: 10px; flex: 0 0 auto; min-height: 54px; border-bottom: 1px solid var(--line-soft); }
 .canvas-heading h2, .inspector-heading h2, .document-toolbar h3 { font-size: 13px; font-weight: 600; }
@@ -221,7 +250,7 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
 
 @media (max-width: 1200px) {
   #app { grid-template-columns: 190px minmax(0, 1fr); }
-  #editor { grid-template-columns: minmax(0, 1fr) 330px; }
+  #editor { --inspector-width: 330px; }
   #workspace-header { padding: 10px 14px; gap: 8px; }
   #save-state { max-width: 80px; }
   .metrics { gap: 10px; padding: 8px 12px; }
@@ -242,6 +271,7 @@ body.step-drag-active .step-drag-handle { cursor: grabbing; }
   .actions { gap: 4px; }
   .actions button { padding: 6px 8px; font-size: 12px; }
   #editor, #editor.inspector-wide { grid-template-columns: minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); }
+  #split-handle { display: none; }
   .mobile-view-switch { display: flex; gap: 0; border-bottom: 1px solid var(--line-strong); padding: 0 12px; }
   .mobile-view-switch button { flex: 1; min-width: 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: #fff; }
   .mobile-view-switch button[aria-pressed="true"] { color: var(--accent-strong); border-bottom-color: var(--accent); }

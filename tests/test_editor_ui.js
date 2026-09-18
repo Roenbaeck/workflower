@@ -53,6 +53,13 @@ function createWorkspace() {
     renderJsonPreview: () => rendered.push('json'),
     renderSqlTab: () => rendered.push('sql'),
     renderTaskButtons() {}, renderGraph() {}, persistCurrentDraft() {},
+    // The width helpers live outside the evaluated region; this test is about the
+    // expand button's state and label, not about the arithmetic.
+    inspectorWidthBeforeExpand: null,
+    INSPECTOR_DEFAULT_WIDTH: 360,
+    currentInspectorWidth: () => 360,
+    inspectorWidthLimits: () => ({ min: 280, max: 900 }),
+    setInspectorWidth() {},
   });
   vm.runInContext(sourceBetween('function switchTab(', 'function renderTaskForm('), context);
   vm.runInContext(sourceBetween('function selectTask(', '// --- Graph ---'), context);
@@ -91,8 +98,29 @@ test('markup has unique IDs and accessible tab targets', () => {
     assert.ok(ids.includes(match[1]), match[1]);
   }
   assert.ok(markup.indexOf('id="workspace-header"') < markup.indexOf('id="editor"'));
-  assert.match(css, /#editor\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 360px/);
+  // The inspector width is driven by a variable so the drag handle, the expand button and
+  // the stored preference all move the same thing.
+  assert.match(css, /#editor\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 5px var\(--inspector-width/);
+  assert.match(css, /#split-handle\s*\{[^}]*cursor: col-resize/);
   assert.match(css, /\.tab-content\s*\{[^}]*overflow: auto/);
+});
+
+test('the split handle sits between the panes and is reachable without a mouse', () => {
+  // Grid column order follows DOM order, so the handle must fall between them.
+  assert.ok(markup.indexOf('class="canvas-pane"') < markup.indexOf('id="split-handle"'));
+  assert.ok(markup.indexOf('id="split-handle"') < markup.indexOf('id="inspector"'));
+
+  const handle = markup.slice(markup.indexOf('id="split-handle"'), markup.indexOf('id="inspector"'));
+  assert.match(handle, /role="separator"/);
+  assert.match(handle, /aria-orientation="vertical"/);
+  assert.match(handle, /tabindex="0"/);
+  assert.match(handle, /aria-valuenow="\d+"/);
+
+  // A drag handle is unusable without a keyboard equivalent.
+  const resize = sourceBetween('function initInspectorResize(', '// --- Environments');
+  assert.match(resize, /ArrowLeft/);
+  assert.match(resize, /ArrowRight/);
+  assert.match(resize, /dblclick/);
 });
 
 test('each inspector tab selects exactly one panel and updates accessibility state', () => {
