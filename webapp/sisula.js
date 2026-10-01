@@ -1,11 +1,14 @@
-// sisula.js — Sisula template renderer for Snowflake JavaScript UDF
-// Ported from sisula-mssql/clr/SisulaRenderer.cs
+// sisula.js — the Sisula template renderer (dialect B: declarative, JSON bindings, no eval).
+// Canonical source; runs unchanged as a Snowflake JavaScript UDF, in browsers, in Node and in
+// ES5 hosts such as Jint. Keep it ES5. Originally ported from sisula-mssql/clr/SisulaRenderer.cs,
+// which is maintained separately and must track this file. See docs/LANGUAGE.md.
 
 var RE_FOREACH = /^\s*\$\/\s*foreach\s+(\w+)\s+in\s+(.+?)\s*$/i;
 var RE_FOREACH_INLINE = /^\s*\$\/\s*foreach\s+(\w+)\s+in\s+(.+?)\s+(.*?)\$\/\s*endfor\s*$/i;
 var RE_FOREACH_INLINE_EMBEDDED = /\$\/\s*foreach\s+(\w+)\s+in\s+(.+?)\s+(.*?)\$\/\s*endfor/gi;
 var RE_ENDFOR = /^\s*\$\/\s*endfor\s*$/i;
-var RE_IF_INLINE = /^\s*\$\/\s*if\s+(.*?)\s*\$\/\s*endif\s*$/is;
+// [\s\S] rather than the dotAll flag, which ES5 hosts such as Jint do not parse.
+var RE_IF_INLINE = /^\s*\$\/\s*if\s+([\s\S]*?)\s*\$\/\s*endif\s*$/i;
 var RE_IF_INLINE_EMBEDDED = /\$\/\s*if\s+(.*?)\$\/\s*endif\s*/gi;
 var RE_IF = /^\s*\$\/\s*if\s+(.+?)\s*$/i;
 var RE_ENDIF = /^\s*\$\/\s*endif\s*$/i;
@@ -25,8 +28,11 @@ var TOKEN_PATTERN = new RegExp(
 var RE_FUNC_CALL = /^(\w+)\s*\(([\s\S]*)\)$/;
 var RE_METHOD_CALL = /^(\w+)\.(first|last|index|count)\s*\(\s*\)\s*$/i;
 var RE_PATH_PROP = /^(\w+)\.(.+)$/;
+// Negation of one term: "not x" or "!x". Binds tighter than and/or; "!=" is a comparison, not a negation.
+var RE_NOT = /^(?:not\s+|!(?!=)\s*)([\s\S]+)$/i;
 
-var COMPARISON_OPS = ["==", "!=", "=", ">=", "<=", ">", "<"];
+// Longest first: ">=" and "<=" contain "=", so "=" must be tried after them, and ">" and "<" last.
+var COMPARISON_OPS = ["==", "!=", ">=", "<=", "=", ">", "<"];
 
 function sisulate(template, bindings) {
     if (template == null) return null;
@@ -89,6 +95,17 @@ function renderBlock(block, ctx, loopVars) {
     return renderScript(block, ctx, loopVars);
 }
 
+// A line opens a block only when the directive is alone on it. "$/ if c A $/ endif" and
+// "$/ foreach x in xs A $/ endfor" close on the same line, so they are inline and must not change
+// the nesting depth while a block's body is being scanned for its end.
+function opensBlockIf(line) {
+    return RE_IF.test(line) && !/\$\/\s*endif/i.test(line);
+}
+
+function opensBlockForeach(line) {
+    return RE_FOREACH.test(line) && !/\$\/\s*endfor/i.test(line);
+}
+
 function renderScript(text, ctx, loopVars) {
     if (!text) return "";
     var sb = [];
@@ -131,7 +148,7 @@ function renderScript(text, ctx, loopVars) {
                 if (stopTrim > pos && text[stopTrim - 1] === "\r") stopTrim--;
                 var innerLine = text.substring(pos, stopTrim);
 
-                if (RE_FOREACH.test(innerLine)) depth++;
+                if (opensBlockForeach(innerLine)) depth++;
                 else if (RE_ENDFOR.test(innerLine)) {
                     depth--;
                     if (depth === 0) {
@@ -215,7 +232,7 @@ function renderScript(text, ctx, loopVars) {
                 if (stopTrim > pos && text[stopTrim - 1] === "\r") stopTrim--;
                 var innerLine = text.substring(pos, stopTrim);
 
-                if (RE_IF.test(innerLine)) depth++;
+                if (opensBlockIf(innerLine)) depth++;
                 else if (depth === 1 && RE_ELSE.test(innerLine)) {
                     elseFound = true;
                     trueBodyEnd = pos;
@@ -373,6 +390,24 @@ function getOrderKey(itemObj, varName, orderPath) {
     return String(val);
 }
 
+function isArray(v) {
+    return Object.prototype.toString.call(v) === "[object Array]";
+}
+
+// A path reaches only what the JSON itself holds: the properties of an object and, by index, the
+// elements of an array. The members every JavaScript value has (length, constructor, toString)
+// are not data, and a host that reads the JSON with another tool, such as SQL Server's JSON
+// functions, cannot see them. Reading them here would let a template work in one host only.
+function memberOf(obj, name) {
+    if (obj === null || typeof obj !== "object" || isArray(obj)) return undefined;
+    return Object.prototype.hasOwnProperty.call(obj, name) ? obj[name] : undefined;
+}
+
+function elementOf(arr, index) {
+    if (!isArray(arr) || index !== index || index < 0 || index >= arr.length) return undefined;
+    return arr[index];
+}
+
 function resolvePathValue(obj, path) {
     if (obj === null || obj === undefined) return null;
     if (!path || path === "$") return obj;
@@ -382,12 +417,9 @@ function resolvePathValue(obj, path) {
         var seg = segments[i];
         if (current === null || current === undefined) return null;
         if (typeof current !== "object") return null;
-        if (seg.index !== null) {
-            current = current[seg.name];
-            if (current === undefined) return null;
-            current = current[seg.index];
-        } else {
-            current = current[seg.name];
+        current = memberOf(current, seg.name);
+        if (seg.index !== null && current !== undefined && current !== null) {
+            current = elementOf(current, seg.index);
         }
     }
     if (current === undefined) return null;
@@ -492,9 +524,11 @@ function renderInline(text, ctx, loopVars) {
     TOKEN_PATTERN.lastIndex = 0;
     // One pass over all three forms. A second pass could reinterpret dollars that came
     // from a rendered value rather than from the template.
+    // Test groups by truthiness: paths are never empty, and some ES5 hosts (Jint 2) pass ""
+    // rather than undefined for a group that did not take part in the match.
     return text.replace(TOKEN_PATTERN, function (match, literalPath, commentPath, plainPath) {
-        if (literalPath != null) return sqlLiteral(resolvePath(ctx, loopVars, literalPath));
-        if (commentPath != null) return sqlComment(resolvePath(ctx, loopVars, commentPath));
+        if (literalPath) return sqlLiteral(resolvePath(ctx, loopVars, literalPath));
+        if (commentPath) return sqlComment(resolvePath(ctx, loopVars, commentPath));
         var result = resolvePath(ctx, loopVars, plainPath);
         return result !== null ? result : "";
     });
@@ -504,7 +538,7 @@ function expandInlineForeach(text, ctx, loopVars) {
     if (!text) return text;
     RE_FOREACH_INLINE_EMBEDDED.lastIndex = 0;
     return text.replace(RE_FOREACH_INLINE_EMBEDDED, function (match) {
-        var m = new RegExp(RE_FOREACH_INLINE_EMBEDDED.source, RE_FOREACH_INLINE_EMBEDDED.flags).exec(match);
+        var m = new RegExp(RE_FOREACH_INLINE_EMBEDDED.source, "i").exec(match);
         if (!m) return match;
         return renderInlineForeachMatch(m, ctx, loopVars);
     });
@@ -545,7 +579,7 @@ function expandInlineIfs(text, ctx, loopVars) {
     if (!text) return text;
     RE_IF_INLINE_EMBEDDED.lastIndex = 0;
     return text.replace(RE_IF_INLINE_EMBEDDED, function (match) {
-        var m = new RegExp(RE_IF_INLINE_EMBEDDED.source, RE_IF_INLINE_EMBEDDED.flags).exec(match);
+        var m = new RegExp(RE_IF_INLINE_EMBEDDED.source, "i").exec(match);
         if (!m) return match;
         var parts = splitInlineIfBody(m[1]);
         var condResult = evalConditionInContext(parts.condition, ctx, loopVars);
@@ -573,6 +607,9 @@ function evalConditionOnItem(itemObj, varName, expr, loopVars) {
         }
         return true;
     }
+
+    var mNotItem = RE_NOT.exec(expr);
+    if (mNotItem) return !evalConditionOnItem(itemObj, varName, mNotItem[1].trim(), loopVars);
 
     var mFunc = RE_FUNC_CALL.exec(expr);
     if (mFunc) {
@@ -610,6 +647,12 @@ function evalConditionOnItem(itemObj, varName, expr, loopVars) {
         }
     }
 
+    // Only a single path is left at this point. Anything with whitespace outside a literal is an
+    // expression this engine does not understand; failing loudly beats silently evaluating false.
+    if (/\s/.test(expr) && expr.indexOf('"') < 0) {
+        throw new Error('Sisula: cannot parse condition: ' + expr);
+    }
+
     var metaCheck = tryResolveLoopMetadata(loopVars, expr, varName);
     if (metaCheck !== null) return truthy(metaCheck);
 
@@ -636,6 +679,9 @@ function evalConditionInContext(expr, ctx, loopVars) {
         }
         return true;
     }
+
+    var mNotCtx = RE_NOT.exec(expr);
+    if (mNotCtx) return !evalConditionInContext(mNotCtx[1].trim(), ctx, loopVars);
 
     var mFuncCheck = RE_FUNC_CALL.exec(expr);
     if (mFuncCheck) {
@@ -992,6 +1038,7 @@ function truthy(v) {
     var num = parseFloat(s);
     if (!isNaN(num) && num === 0 && String(num) === s) return false;
     if (s.toLowerCase() === "null") return false;
+    if (s === "[]") return false; // an empty array, as stringified from the bindings
     return true;
 }
 
@@ -1113,7 +1160,7 @@ function endsWithLogicalOperator(text, idx) {
     if (start > end) return false;
     var word = text.substring(start, end + 1);
     var lower = word.toLowerCase();
-    return lower === "and" || lower === "or";
+    return lower === "and" || lower === "or" || lower === "not";
 }
 
 function rtrim(s) {
