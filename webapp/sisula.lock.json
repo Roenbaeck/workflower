@@ -1,0 +1,20 @@
+{
+  "source": "https://github.com/Roenbaeck/sisula",
+  "commit": "83438a754aadb2fb7903af7394b2537b5c70854b",
+  "date": "2026-10-01T10:52:02+02:00",
+  "subject": "Remove the original Sisulator.js",
+  "engine": { "from": "core/sisula.js", "to": "webapp/sisula.js", "sha256": "42e43931538b3414f4cb83e6d50663969b3813c16c581491b3157b732f5a9a60" },
+  "language": { "from": "docs/LANGUAGE.md", "to": "docs/SISULA.md", "sha256": "c5104b9a588ce8658f3b5638ab3573253393536970527a91810c52f3f1cd414e" },
+  "fixtures": {
+    "from": "tests/fixtures",
+    "to": "tests/sisula-fixtures",
+    "files": {
+      "comparison.json": "4759eb9ad353c7a87a9fd55516c98e559ac8a079d3ca5ed44037ce64ff9af215",
+      "core.json": "7e403c52e1a5f097e2f556c03050a02d4ced840e9f1ad9393343e1bce5ba81a0",
+      "negation.json": "932bdf82798eb1b83b4ce9287d7e959cfd7fc51493f866d84245ca89e995e127",
+      "nesting.json": "38232d3e68c6d5c830b54cf7b6545375e03998a70c3e7c22f773a5785df39791",
+      "ordering.json": "4dc4028081c1cf3aba990504ddd8896e94dd89b1c0683f0edaf4ad4fee853e4d",
+      "paths.json": "ee50a4823d562993bb9f84e3fce1ee7c11875bcebf131894856164faa489f446"
+    }
+  }
+}

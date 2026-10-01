@@ -1,6 +1,6 @@
 # Sisula language reference
 
-This document describes the small Sisula-like template language implemented by the `SisulaRenderer` SQLCLR function.
+This document describes the Sisula template language. The reference implementation is `core/sisula.js`; `sisula-mssql` implements the same language as a SQLCLR function (`SisulaRenderer`) and must behave identically. Both are checked against the shared fixtures in `tests/fixtures/`.
 
 Blocks and tokens
 - Template blocks are delimited by `/*~ ... ~*/`. Everything outside blocks is passed through unchanged. If a template has no `/*~ ... ~*/` delimiters, the entire template is treated as a Sisula script (tokens + line directives).
@@ -36,10 +36,10 @@ Line directives
 - If:
     - Block form: `$/ if <condition>` ... `[ $/ else ... ]` ... `$/ endif` — optional `$/ else` renders an alternate branch when the condition is false.
     - Single-line form (inline-if): `$/ if <cond> <when-true> $/ else <when-false> $/ endif` — optional `$/ else` controls the false branch; omit it to render nothing on false. The inline content respects the indentation where the directive appears.
-        - Inline-if directives can also appear inside a content line to add or remove inline fragments (useful for trailing commas or comments that depend on metadata). Nested inline directives can use `$/ else` as well.
+        - Inline-if directives can also appear inside a content line to add or remove inline fragments (useful for trailing commas or comments that depend on metadata). An inline if cannot contain another inline if; use block ifs for nested choices.
 
 Comments
-- Line comments: start a line with `$-` (optionally indented) to remove it from the rendered output.
+- Line comments: start a line with `$-` (optionally indented) to remove it, newline and all, from the rendered output.
 - Inline comments: wrap comment text as `$- ... -$` to drop the span while keeping the surrounding content.
 - Comments are stripped before token or directive evaluation.
 
@@ -50,25 +50,23 @@ Loop metadata
   - Only the method form is supported to avoid ambiguity in nested loops and path parsing.
 
 Expression language
-- Comparison operators: `==, !=, >=, <=, >, <`.
+- Comparison operators: `==, !=, >=, <=, >, <`. A single `=` means the same as `==`. Numbers are compared as numbers and everything else as text, ignoring case.
 - Logical operators: `and`, `or` (case-insensitive). Operator precedence: `and` is evaluated before `or`.
+- Negation: `not x` or `!x` (case-insensitive) negates the single term that follows it, which can be a path, a loop-metadata call, a function call or a comparison (`not a == b` means `not (a == b)`). `not` binds tighter than `and` and `or`, so `not a or b` is `(not a) or b`. There are no parentheses.
 - Functions: `contains(x,"y")`, `startswith(x,"y")`, `endswith(x,"y")`.
 - String literals use double quotes (`"value"`). Escape a double quote inside a literal with `""`.
 - Single-quoted literals are not supported (use double quotes exclusively).
-- Truthy checks on paths: null/empty/false/"0"/"null" are falsey.
+- Truthy checks on paths: null/empty/false/"0"/"null" and an empty array are falsey. Any other array or object is truthy.
+- A condition the renderer cannot parse, for example `x y z`, is an error. It is never silently treated as false.
 - Expressions are used by `$/ if` and `foreach where`.
 
 JSON binding and resolution
-- Bindings are passed as a single JSON document to `SISULATE(template, bindingsJson)`.
-- Resolution uses native JavaScript JSON parsing (no external libraries).
-- `foreach` iterates over JSON arrays directly; path resolution traverses the parsed JSON object.
-- Scalar values are returned as strings; complex values (objects/arrays) are JSON-stringified.
-
-Authoring and installing templates
-- Author templates as `.sql` files under `webapp/templates/` to get proper SQL syntax highlighting in VS Code.
-- Install templates into Snowflake with `CALL SP_SISULA_TEMPLATE_CRUD('UPSERT', 'template_name', '$$...$$')`. Templates are stored in the metadata model rather than a standalone table.
-- `./deploy_metadata.sh` seeds `CreateTaskGraph` into metadata template storage so the web UI and render helpers can resolve it immediately after metadata deployment.
-- Render by calling `SELECT SISULATE(template, bindings)` or `CALL SP_SISULA_RENDER('template_name', bindings)`.
+- Bindings are passed as a single JSON document: `sisulate(template, bindingsJson)`. Hosts wrap this as they see fit (`SISULATE` in Snowflake, `fn_sisulate` in SQL Server).
+- `foreach` iterates over a JSON array.
+- Scalar values are returned as strings; complex values (objects/arrays) are returned as JSON text.
+- **A path reaches only what the JSON itself holds**: the properties of an object, and the elements of an array by index, `[n]`. A path that names anything else, such as a property that is not there, an index past the end, a name on an array or a segment below a scalar, has no value, and renders as an empty string. In particular there is no `length`: an array has no named members, and neither does a string. Where a template needs a count, put the count in the bindings. This is what lets the same template give the same output in every host: the JavaScript implementation reads the document as JavaScript objects, which have members JSON does not (`length`, `constructor`, `toString`), and the SQL Server implementation reads it with `JSON_VALUE`, `JSON_QUERY` and `OPENJSON`, which do not see them.
+- A property whose name happens to be `length` is an ordinary property and is read like any other.
+- Hosts differ in limits that are not part of the language. SQL Server reads a scalar through `JSON_VALUE`, which returns at most 4000 characters, so a longer scalar renders as an empty string there.
 
 Examples
 
@@ -175,4 +173,10 @@ Small templates often rely on precise spacing when embedding inline directives. 
 - When an inline directive is embedded in a larger inline `foreach`/`if`, spacing between directives is treated as separation, not as part of a branch. In practice this means you can add a single space before/after branch content as a separator and it will be preserved consistently.
     - The inline-if parser avoids splitting the condition at whitespace that is adjacent to logical operators (`and`/`or`) or binary operators (`==`, `=`, `!=`, `>=` etc.). This prevents accidental branch splitting for expressions like `c.type == "varchar" or c.type == "char"`.
 
-If you need separators only between items (but not after the final item) prefer using a conditional that inspects `varName.last()` or generate separators in a separate `foreach` pass.
+- Whitespace after `$/ endif` is swallowed, and so is the whitespace between an inline condition and its first branch. Put spaces that belong to the output inside a branch: `$/ if x $x.count$ $/ else 0 $/ endif items`.
+- In `$/ if c A $/ else B$/ endif` the true branch keeps the space before `$/ else`, and the false branch keeps anything before `$/ endif`.
+- A line that holds only an inline if renders as an empty line when the chosen branch is empty. Use a block if to leave out a whole line.
+- To end a line with a space that an editor might trim, write it before an empty inline comment: `x $--$` renders as `x ` followed by the newline.
+- A line that holds a complete inline `if` or `foreach` never opens a block, so it is safe inside the body of a block `if` or `foreach`.
+
+If you need separators only between items (but not after the final item) prefer using a conditional that inspects `varName.last()`, for example `$c.name$$/ if not c.last() ,$/ endif`, or generate separators in a separate `foreach` pass.
