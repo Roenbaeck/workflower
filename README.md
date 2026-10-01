@@ -26,19 +26,24 @@ installation provides plus the Snowflake CLI.
 
 ## Core Docs
 
-- [Sisula language reference](docs/SISULA.md)
+- [Sisula language reference](docs/SISULA.md) (a pinned copy of the reference in the sisula repository)
 - [Workflow JSON format](docs/WorkflowFormat.md)
 - [PowerShell backend architecture](docs/PowerShellArchitecture.md)
 
 ## Repo Layout
 
 - `sql/`: deploys the Snowflake Sisula engine.
+- `tools/`: `sync-sisula.ps1`, which updates the vendored Sisula engine, language reference and
+  conformance fixtures from the sisula repository.
 - `metadata/`: the anchor model and its generator, plus knot values, logging,
   configuration, stage, import and retention procedures.
 - `webapp/`: the editor UI, the PowerShell server and handlers, and browser assets.
+  `webapp/sisula.js` is the Sisula engine, a pinned copy that is not edited here
+  (see [The Sisula engine](#the-sisula-engine)).
 - `webapp/templates/`: template sources deployed into Snowflake metadata storage; also used
   for the browser's offline preview.
-- `tests/`: the JavaScript and SQL test suites.
+- `tests/`: the JavaScript and SQL test suites. `tests/sisula-fixtures/` are the shared
+  Sisula conformance fixtures, also a pinned copy.
 - `examples/`: example workflow bindings.
 
 ## The metadata model
@@ -239,7 +244,10 @@ npm test
 `tests\test_all.ps1` runs the SQL suite in `tests/sql/`. Most of those files render
 templates and print the result for inspection; `tests/sql/test_escaping.sql` asserts,
 reporting a `STATUS` column that the runner checks. `npm test` runs the JavaScript suites,
-which need Node and so are a development-machine check rather than part of deployment.
+which need Node and so are a development-machine check rather than part of deployment. They
+include a conformance test that runs the vendored engine through every shared Sisula fixture
+and checks that none of the vendored files has been edited. The second of those checks needs
+neither Node nor Git: `.\tools\sync-sisula.ps1 -Check`.
 
 ## Architecture
 
@@ -317,6 +325,41 @@ A non-administrator account may need a URL reservation before it can listen:
 ```
 netsh http add urlacl url=http://127.0.0.1:8000/ user=DOMAIN\user
 ```
+
+## The Sisula engine
+
+The engine is not developed here. `webapp/sisula.js` is a copy of `core/sisula.js` from the
+[sisula repository](https://github.com/Roenbaeck/sisula), the reference renderer, and so are the
+language reference (`docs/SISULA.md`) and the conformance fixtures (`tests/sisula-fixtures/`).
+`webapp/sisula.lock.json` records the sisula commit they came from and the SHA-256 of each file,
+and the tests fail if any of them has been edited. The same file is served to the browser,
+spliced into the `SISULATE` function in Snowflake by `deploy.ps1`, and loaded by the tests.
+
+A newer version is taken when you decide it is safe to:
+
+```
+.\tools\sync-sisula.ps1                  # origin/master of the sibling ..\sisula checkout
+.\tools\sync-sisula.ps1 -Ref <tag|commit>
+.\tools\sync-sisula.ps1 -Check           # only verify the copies against the lock
+```
+
+The script copies the files as committed, not as they are in the working tree, and refuses a
+commit that is not on `origin/master`. Review `git diff`, run `npm test`, commit, and run
+`.\deploy.ps1` so that Snowflake uses the new engine. A newer engine may be stricter about what a
+template may do, and a template stored in Snowflake is checked only when it renders, so try any
+custom templates after an update.
+
+### Writing and installing templates
+
+- Author templates as `.sql` files under `webapp/templates/` to get proper SQL syntax
+  highlighting in VS Code.
+- Install a template into Snowflake with
+  `CALL SP_SISULA_TEMPLATE_CRUD('UPSERT', 'template_name', '$$...$$')`. Templates are stored in
+  the metadata model rather than in a standalone table.
+- `.\deploy_metadata.ps1` seeds `CreateTaskGraph` into the metadata template storage, so that
+  the web UI and the render helpers can use it as soon as the metadata is deployed.
+- Render with `SELECT SISULATE(template, bindings)` or
+  `CALL SP_SISULA_RENDER('template_name', bindings)`.
 
 ## Template escaping
 
