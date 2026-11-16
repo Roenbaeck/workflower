@@ -37,10 +37,10 @@ function ConvertTo-ApiError {
 function Get-WorkflowList {
     param([Parameter(Mandatory = $true)][string] $Connection)
     $sql = @'
-SELECT CF_ID, CF_NAM_Configuration_Name AS NAME, CF_TYP_CFT_ConfigurationType AS TYPE
-FROM metadata.lCF_Configuration
-WHERE CF_TYP_CFT_ConfigurationType = 'Workflow'
-ORDER BY CF_NAM_Configuration_Name;
+SELECT CF_ID, "CF_NAM_Configuration_Name" AS NAME, "CF_TYP_CFT_ConfigurationType" AS TYPE
+FROM metadata."lCF_Configuration"
+WHERE "CF_TYP_CFT_ConfigurationType" = 'Workflow'
+ORDER BY "CF_NAM_Configuration_Name";
 '@
     $result = Invoke-SnowSql -Sql $sql -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
@@ -59,9 +59,9 @@ function Get-Workflow {
           [ValidateSet('Workflow', 'Environment')][string] $ConfigType = 'Workflow')
     $id = Assert-Id $CfId
     $sql = @"
-SELECT CF_ID, CF_NAM_Configuration_Name AS NAME, CF_CNT_Configuration_Content AS CONTENT
-FROM metadata.lCF_Configuration
-WHERE CF_ID = $id AND CF_TYP_CFT_ConfigurationType = '$ConfigType';
+SELECT CF_ID, "CF_NAM_Configuration_Name" AS NAME, "CF_CNT_Configuration_Content" AS CONTENT
+FROM metadata."lCF_Configuration"
+WHERE CF_ID = $id AND "CF_TYP_CFT_ConfigurationType" = '$ConfigType';
 "@
     $result = Invoke-SnowSql -Sql $sql -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }
@@ -316,10 +316,10 @@ function Start-WorkflowRun {
 function Get-Environments {
     param([Parameter(Mandatory = $true)][string] $Connection)
     $sql = @'
-SELECT CF_ID, CF_NAM_Configuration_Name AS NAME
-FROM metadata.lCF_Configuration
-WHERE CF_TYP_CFT_ConfigurationType = 'Environment'
-ORDER BY CF_NAM_Configuration_Name;
+SELECT CF_ID, "CF_NAM_Configuration_Name" AS NAME
+FROM metadata."lCF_Configuration"
+WHERE "CF_TYP_CFT_ConfigurationType" = 'Environment'
+ORDER BY "CF_NAM_Configuration_Name";
 '@
     $result = Invoke-SnowSql -Sql $sql -Connection $Connection
     if (-not $result.Success) { return ConvertTo-ApiError -Text $result.Text }

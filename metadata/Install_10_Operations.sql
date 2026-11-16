@@ -28,8 +28,8 @@ AS
 $$
 function config(cfId) {
     var rs = snowflake.createStatement({
-        sqlText: "SELECT CF_CNT_Configuration_Content FROM metadata.lCF_Configuration " +
-                 "WHERE CF_ID = ? AND CF_TYP_CFT_ConfigurationType = 'Workflow'",
+        sqlText: "SELECT \"CF_CNT_Configuration_Content\" FROM metadata.\"lCF_Configuration\" " +
+                 "WHERE CF_ID = ? AND \"CF_TYP_CFT_ConfigurationType\" = 'Workflow'",
         binds: [cfId]
     }).execute();
     if (!rs.next()) throw new Error('Configuration not found');
@@ -78,8 +78,8 @@ $$
 if (STATE !== 'running' && STATE !== 'suspended') throw new Error("STATE must be 'running' or 'suspended'");
 
 var rs = snowflake.createStatement({
-    sqlText: "SELECT CF_CNT_Configuration_Content FROM metadata.lCF_Configuration " +
-             "WHERE CF_ID = ? AND CF_TYP_CFT_ConfigurationType = 'Workflow'",
+    sqlText: "SELECT \"CF_CNT_Configuration_Content\" FROM metadata.\"lCF_Configuration\" " +
+             "WHERE CF_ID = ? AND \"CF_TYP_CFT_ConfigurationType\" = 'Workflow'",
     binds: [CF_ID]
 }).execute();
 if (!rs.next()) throw new Error('Configuration not found');
@@ -116,8 +116,8 @@ EXECUTE AS CALLER
 AS
 $$
 var rs = snowflake.createStatement({
-    sqlText: "SELECT CF_CNT_Configuration_Content FROM metadata.lCF_Configuration " +
-             "WHERE CF_ID = ? AND CF_TYP_CFT_ConfigurationType = 'Workflow'",
+    sqlText: "SELECT \"CF_CNT_Configuration_Content\" FROM metadata.\"lCF_Configuration\" " +
+             "WHERE CF_ID = ? AND \"CF_TYP_CFT_ConfigurationType\" = 'Workflow'",
     binds: [CF_ID]
 }).execute();
 if (!rs.next()) throw new Error('Configuration not found');

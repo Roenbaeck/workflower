@@ -121,9 +121,9 @@ BEGIN
 
     -- A rename produced a new configuration; retire the one it replaced.
     IF (PREVIOUS_CF_ID IS NOT NULL AND :PREVIOUS_CF_ID <> :cf_id) THEN
-        SELECT CF_NAM_Configuration_Name INTO :previous_name
-        FROM metadata.lCF_Configuration
-        WHERE CF_ID = :PREVIOUS_CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+        SELECT "CF_NAM_Configuration_Name" INTO :previous_name
+        FROM metadata."lCF_Configuration"
+        WHERE CF_ID = :PREVIOUS_CF_ID AND "CF_TYP_CFT_ConfigurationType" = 'Workflow';
         IF (previous_name IS NOT NULL) THEN
             CALL metadata._ConfigurationDelete(:previous_name);
         END IF;
@@ -152,8 +152,8 @@ BEGIN
     -- Deliberately not filtered by type: an identity is an identity, and environments are
     -- configurations too. Filtering on 'Workflow' here meant an environment could be
     -- created and listed but never deleted.
-    SELECT CF_NAM_Configuration_Name INTO :wf_name
-    FROM metadata.lCF_Configuration
+    SELECT "CF_NAM_Configuration_Name" INTO :wf_name
+    FROM metadata."lCF_Configuration"
     WHERE CF_ID = :CF_ID;
     IF (wf_name IS NULL) THEN RAISE no_config; END IF;
 
@@ -386,16 +386,16 @@ DECLARE
     problems VARIANT;
     no_config EXCEPTION (-20006, 'Configuration not found');
 BEGIN
-    SELECT CF_CNT_Configuration_Content INTO :config_text
-    FROM metadata.lCF_Configuration
-    WHERE CF_ID = :CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+    SELECT "CF_CNT_Configuration_Content" INTO :config_text
+    FROM metadata."lCF_Configuration"
+    WHERE CF_ID = :CF_ID AND "CF_TYP_CFT_ConfigurationType" = 'Workflow';
     IF (config_text IS NULL) THEN RAISE no_config; END IF;
 
     merged := :config_text;
     IF (ENV_CF_ID IS NOT NULL) THEN
-        SELECT CF_CNT_Configuration_Content INTO :env_text
-        FROM metadata.lCF_Configuration
-        WHERE CF_ID = :ENV_CF_ID AND CF_TYP_CFT_ConfigurationType = 'Environment';
+        SELECT "CF_CNT_Configuration_Content" INTO :env_text
+        FROM metadata."lCF_Configuration"
+        WHERE CF_ID = :ENV_CF_ID AND "CF_TYP_CFT_ConfigurationType" = 'Environment';
         IF (env_text IS NOT NULL) THEN
             merged := (
                 SELECT TO_JSON(OBJECT_AGG(key, value))
@@ -448,8 +448,8 @@ BEGIN
     problems := (CALL metadata._ValidateWorkflow(:BINDINGS));
     IF (ARRAY_SIZE(:problems) > 0) THEN RAISE invalid_workflow; END IF;
 
-    SELECT TP_CNT_Template_Content INTO :template_text
-    FROM metadata.lTP_Template WHERE TP_NAM_Template_Name = :TEMPLATE_NAME;
+    SELECT "TP_CNT_Template_Content" INTO :template_text
+    FROM metadata."lTP_Template" WHERE "TP_NAM_Template_Name" = :TEMPLATE_NAME;
     IF (template_text IS NULL) THEN RAISE no_template; END IF;
 
     LET config_text VARCHAR := :BINDINGS;
@@ -470,13 +470,13 @@ BEGIN
     -- would reintroduce the escaping problem this design exists to remove. The rendered
     -- DDL is recorded against an Installation instead, which both carries it into the
     -- unload and keeps a durable record after the staged file is pruned.
-    SELECT metadata.IL_Installation_ID_SEQ.NEXTVAL INTO :il_id;
-    INSERT INTO metadata.IL_Installation (IL_ID) VALUES (:il_id);
-    INSERT INTO metadata.IL_RID_Installation_RunId (IL_RID_IL_ID, IL_RID_Installation_RunId)
+    SELECT metadata."IL_Installation_ID_SEQ".NEXTVAL INTO :il_id;
+    INSERT INTO metadata."IL_Installation" (IL_ID) VALUES (:il_id);
+    INSERT INTO metadata."IL_RID_Installation_RunId" (IL_RID_IL_ID, "IL_RID_Installation_RunId")
         VALUES (:il_id, :RUN_ID);
-    INSERT INTO metadata.IL_DDL_Installation_RenderedSql (IL_DDL_IL_ID, IL_DDL_Installation_RenderedSql)
+    INSERT INTO metadata."IL_DDL_Installation_RenderedSql" (IL_DDL_IL_ID, "IL_DDL_Installation_RenderedSql")
         VALUES (:il_id, :rendered);
-    INSERT INTO metadata.IL_RAT_Installation_RenderedAt (IL_RAT_IL_ID, IL_RAT_Installation_RenderedAt)
+    INSERT INTO metadata."IL_RAT_Installation_RenderedAt" (IL_RAT_IL_ID, "IL_RAT_Installation_RenderedAt")
         VALUES (:il_id, :now_ts);
     -- Status is set once, by _InstallationCompleted. An installation with no status row
     -- was rendered but never reported back on.
@@ -484,17 +484,17 @@ BEGIN
     -- SINGLE = TRUE cannot overwrite, which is why the filename carries a fresh run id.
     EXECUTE IMMEDIATE
         'COPY INTO @metadata.WORKFLOWER/out/' || :RUN_ID || '.sql ' ||
-        'FROM (SELECT IL_DDL_Installation_RenderedSql FROM metadata.IL_DDL_Installation_RenderedSql ' ||
+        'FROM (SELECT "IL_DDL_Installation_RenderedSql" FROM metadata."IL_DDL_Installation_RenderedSql" ' ||
         'WHERE IL_DDL_IL_ID = ' || :il_id || ') ' ||
         'FILE_FORMAT = (FORMAT_NAME = ''metadata.WF_RAW'') SINGLE = TRUE';
 
     -- Record which template produced it.
     SELECT tp.TP_ID INTO :tp_id
-    FROM metadata.TP_Template tp
-    JOIN metadata.TP_NAM_Template_Name nam ON nam.TP_NAM_TP_ID = tp.TP_ID
-    WHERE nam.TP_NAM_Template_Name = :TEMPLATE_NAME;
+    FROM metadata."TP_Template" tp
+    JOIN metadata."TP_NAM_Template_Name" nam ON nam.TP_NAM_TP_ID = tp.TP_ID
+    WHERE nam."TP_NAM_Template_Name" = :TEMPLATE_NAME;
     IF (tp_id IS NOT NULL) THEN
-        INSERT INTO metadata.IL_applies_TP_rendered (IL_ID_applies, TP_ID_rendered)
+        INSERT INTO metadata."IL_applies_TP_rendered" ("IL_ID_applies", "TP_ID_rendered")
         VALUES (:il_id, :tp_id);
     END IF;
 
@@ -526,17 +526,17 @@ DECLARE
     no_config EXCEPTION (-20006, 'Configuration not found');
     no_environment EXCEPTION (-20012, 'Environment configuration not found');
 BEGIN
-    SELECT CF_CNT_Configuration_Content INTO :config_text
-    FROM metadata.lCF_Configuration
-    WHERE CF_ID = :CF_ID AND CF_TYP_CFT_ConfigurationType = 'Workflow';
+    SELECT "CF_CNT_Configuration_Content" INTO :config_text
+    FROM metadata."lCF_Configuration"
+    WHERE CF_ID = :CF_ID AND "CF_TYP_CFT_ConfigurationType" = 'Workflow';
     IF (config_text IS NULL) THEN RAISE no_config; END IF;
 
     merged := (SELECT PARSE_JSON(:config_text));
 
     IF (ENV_CF_ID IS NOT NULL) THEN
-        SELECT CF_CNT_Configuration_Content INTO :env_text
-        FROM metadata.lCF_Configuration
-        WHERE CF_ID = :ENV_CF_ID AND CF_TYP_CFT_ConfigurationType = 'Environment';
+        SELECT "CF_CNT_Configuration_Content" INTO :env_text
+        FROM metadata."lCF_Configuration"
+        WHERE CF_ID = :ENV_CF_ID AND "CF_TYP_CFT_ConfigurationType" = 'Environment';
         IF (env_text IS NULL) THEN RAISE no_environment; END IF;
 
         -- Environment keys win. Snowflake has no object merge, so flatten both and keep
@@ -566,7 +566,7 @@ BEGIN
     -- the staged file being pruned. The identity is read into a variable first: a VARIANT
     -- path is not a valid expression inside a VALUES clause.
     new_il_id := (SELECT :result:il_id::INT);
-    INSERT INTO metadata.IL_installs_CF_configuration (IL_ID_installs, CF_ID_configuration)
+    INSERT INTO metadata."IL_installs_CF_configuration" ("IL_ID_installs", "CF_ID_configuration")
     VALUES (:new_il_id, :CF_ID);
 
     RETURN result;
@@ -597,18 +597,18 @@ BEGIN
     IF (:STATUS NOT IN ('Installed', 'Failed')) THEN RAISE bad_status; END IF;
 
     SELECT IL_RID_IL_ID INTO :il_id
-    FROM metadata.IL_RID_Installation_RunId
-    WHERE IL_RID_Installation_RunId = :RUN_ID;
+    FROM metadata."IL_RID_Installation_RunId"
+    WHERE "IL_RID_Installation_RunId" = :RUN_ID;
     IF (il_id IS NULL) THEN RAISE no_installation; END IF;
 
     SELECT ILS_ID INTO :ils_id
-    FROM metadata.ILS_InstallationStatus WHERE ILS_InstallationStatus = :STATUS;
+    FROM metadata."ILS_InstallationStatus" WHERE "ILS_InstallationStatus" = :STATUS;
 
-    INSERT INTO metadata.IL_STA_Installation_Status (IL_STA_IL_ID, IL_STA_ILS_ID)
+    INSERT INTO metadata."IL_STA_Installation_Status" (IL_STA_IL_ID, IL_STA_ILS_ID)
     VALUES (:il_id, :ils_id);
 
     IF (ERROR IS NOT NULL) THEN
-        INSERT INTO metadata.IL_ERR_Installation_Error (IL_ERR_IL_ID, IL_ERR_Installation_Error)
+        INSERT INTO metadata."IL_ERR_Installation_Error" (IL_ERR_IL_ID, "IL_ERR_Installation_Error")
         VALUES (:il_id, LEFT(:ERROR, 2000));
     END IF;
 

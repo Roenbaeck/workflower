@@ -19,7 +19,7 @@ generating and managing Snowflake task graphs from JSON workflow definitions.
 
 - **Snowflake CLI** (`snow`), with a configured connection profile
 - **Windows PowerShell 5.1** or later
-- Node.js 18+ only to run the JavaScript regression tests
+- Node.js 18+ to run the JavaScript regression tests or regenerate the metadata model
 
 There is no Python or bash dependency. Everything runs with what a Windows Server
 installation provides plus the Snowflake CLI.
@@ -50,17 +50,20 @@ installation provides plus the Snowflake CLI.
 
 Everything the metadata schema stores is anchor modelled. `metadata/MetadataModel.xml` is
 the source of truth and `metadata/Install_2_MetadataModel.sql` is generated from it by the
-[Anchor Modeling](https://www.anchormodeling.com/modeler/test) tool, targeting Snowflake.
+[Anchor Modeling](https://www.anchormodeling.com/modeler/test) generator, targeting Snowflake.
 
-Regenerate it without opening the modeler:
+Regenerate the installation script without opening the modeler:
 
 ```
-npm install
 npm run generate-model
 ```
 
-`metadata/generate.js` runs the modeler's own Sisulator and its published Snowflake scripts
-locally, caching them under `metadata/.anchor/`. Use `--refresh` to re-fetch them.
+The bundled `metadata/anchor-generator-snowflake.js` is built from Anchor's
+`tools/build-portable-generator.ps1`; it runs locally without the original
+Sisulator, a network connection or XML packages. Rebuild that file from an
+Anchor checkout to update the generator. Use `-- --output <path>` to write
+elsewhere. The generated objects use quoted, case-sensitive identifiers;
+references to them must use the exact spelling and double quotes as well.
 
 Because the generated DDL uses `CREATE TABLE IF NOT EXISTS`, changing an existing
 attribute's temporalization requires dropping its table before redeploying; the generator
@@ -158,14 +161,14 @@ and any error. The record outlives the staged file, so pruning the stage does no
 audit trail:
 
 ```sql
-SELECT LEFT(il.IL_RID_Installation_RunId, 8) AS RUN,
-       cf.CF_NAM_Configuration_Name          AS WORKFLOW,
-       COALESCE(il.IL_STA_ILS_InstallationStatus, 'not reported') AS STATUS,
-       il.IL_RAT_Installation_RenderedAt     AS RENDERED_AT
-FROM metadata.lIL_Installation il
-LEFT JOIN metadata.IL_installs_CF_configuration t ON t.IL_ID_installs = il.IL_ID
-LEFT JOIN metadata.lCF_Configuration cf ON cf.CF_ID = t.CF_ID_configuration
-ORDER BY il.IL_RAT_Installation_RenderedAt DESC;
+SELECT LEFT(il."IL_RID_Installation_RunId", 8) AS RUN,
+       cf."CF_NAM_Configuration_Name"          AS WORKFLOW,
+       COALESCE(il."IL_STA_ILS_InstallationStatus", 'not reported') AS STATUS,
+       il."IL_RAT_Installation_RenderedAt"     AS RENDERED_AT
+FROM metadata."lIL_Installation" il
+LEFT JOIN metadata."IL_installs_CF_configuration" t ON t."IL_ID_installs" = il.IL_ID
+LEFT JOIN metadata."lCF_Configuration" cf ON cf.CF_ID = t."CF_ID_configuration"
+ORDER BY il."IL_RAT_Installation_RenderedAt" DESC;
 ```
 
 An installation with no status was rendered but never reported back on. `Failed` means
