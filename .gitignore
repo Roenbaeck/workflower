@@ -12,7 +12,8 @@ snowflake_cli_setup.png
 examples/rendered/
 rendered/
 
-# Cached Anchor Modeling generator assets (metadata/generate.js)
+# Cache left by the retired Anchor generator
 metadata/.anchor/
+metadata/MetadataModel.preview.sql
 node_modules/
 package-lock.json

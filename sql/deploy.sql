@@ -33,7 +33,7 @@ AS $$
         return 'OK';
     } else if (op === 'GET') {
         var rs = snowflake.createStatement({
-            sqlText: 'SELECT TP_CNT_Template_Content FROM metadata.lTP_Template WHERE TP_NAM_Template_Name = ?',
+            sqlText: 'SELECT "TP_CNT_Template_Content" FROM metadata."lTP_Template" WHERE "TP_NAM_Template_Name" = ?',
             binds: [name]
         }).execute();
         if (rs.next()) {
@@ -43,7 +43,7 @@ AS $$
     } else if (op === 'LIST') {
         var sb = [];
         var rs = snowflake.createStatement({
-            sqlText: 'SELECT TP_NAM_Template_Name, TP_CNT_ChangedAt FROM metadata.lTP_Template ORDER BY TP_NAM_Template_Name'
+            sqlText: 'SELECT "TP_NAM_Template_Name", "TP_CNT_ChangedAt" FROM metadata."lTP_Template" ORDER BY "TP_NAM_Template_Name"'
         }).execute();
         while (rs.next()) {
             sb.push(rs.getColumnValue(1) + ' | ' + rs.getColumnValue(2));
@@ -64,7 +64,7 @@ RETURNS VARCHAR
 LANGUAGE JAVASCRIPT
 AS $$
     var rs = snowflake.createStatement({
-        sqlText: 'SELECT TP_CNT_Template_Content FROM metadata.lTP_Template WHERE TP_NAM_Template_Name = ?',
+        sqlText: 'SELECT "TP_CNT_Template_Content" FROM metadata."lTP_Template" WHERE "TP_NAM_Template_Name" = ?',
         binds: [TPL_NAME]
     }).execute();
     var template = null;
