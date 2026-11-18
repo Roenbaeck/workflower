@@ -41,27 +41,12 @@ Originally a code review from 2026-09-17. Updated 2026-09-18 during the PowerShe
   `STATUS` column that `test_all.ps1` checks. The other five files render a template and
   print the output for a human to read, so a regression in them is invisible to CI.
 
-## Reported upstream
-
-- [ ] **The Anchor Modeler generates an invalid rewinder for a knotted historized
-  attribute on Snowflake.** `CreateAttributeRewinders.js` builds the `RETURNS TABLE`
-  signature from the attribute's `dataRange`, which a knotted attribute does not have, so
-  the knot column comes out with no type:
-
-  ```sql
-  RETURNS TABLE (
-      IL_STA_IL_ID int,
-      IL_STA_ILS_ID ,          -- no data type
-      IL_STA_ChangedAt timestamp_tz
-  )
-  ```
-
-  Snowflake rejects it with `Return signature missing data type`. The fix is presumably to
-  fall back to the knot's identity type when `knotRange` is set. Worked around here by
-  making `IL_STA_Installation_Status` static, which is the right modelling anyway.
-
 ## Fixed
 
+- [x] **The Anchor Modeler generated an invalid rewinder for a knotted historized attribute on Snowflake.**
+  The old `CreateAttributeRewinders.js` left the knot column without a data type (`Return signature missing data type`).
+  The generator that the model is made with now (Sisula templates; `metadata/anchor-generator-snowflake.js`) gives the column the
+  knot's identity type. `IL_STA_Installation_Status` stays static, which is the right modelling anyway.
 - [x] **Serverless tasks can now run.** `EXECUTE MANAGED TASK` has been granted to
   `SYSADMIN`, and a two-task serverless graph was verified end to end: both tasks rendered
   `USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE` with no warehouse, shared one graph run id,
