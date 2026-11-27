@@ -185,7 +185,7 @@ function Invoke-WfRoute {
         }
         '/api/import' {
             $text = [string](Get-WfValue $Body 'text')
-            $doc = ConvertFrom-WfJson $text
+            try { $doc = ConvertFrom-WfJson $text } catch { throw "The file is not valid JSON." }
             if (-not ($doc -is [System.Collections.IDictionary]) -or -not (Test-WfHas $doc 'tasks')) { throw 'Not a task graph file: it has no "tasks".' }
             $g = ConvertTo-WfGraph $doc
             return [ordered]@{ graph = (ConvertTo-WfGraphView $g); problems = (ConvertTo-WfProblemList $g) }

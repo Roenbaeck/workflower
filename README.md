@@ -132,7 +132,9 @@ every identifier is written quoted, so a file made by `Export-TaskGraph` always 
 
 - 81 tests need no Snowflake (`tests\Test-Offline.ps1`): fixtures shaped like `SHOW TASKS`, validation, rendering, the files
   and every kind of plan.
-- 30 tests run the web server and its API over HTTP with the demo session (`tests\Test-Api.ps1`).
+- 31 tests run the web server and its API over HTTP with the demo session (`tests\Test-Api.ps1`), and the interface has a self-test of
+  193 checks that runs in a headless Edge or Chrome against the demo server (`tests\Test-Ui.ps1`): layout, editing, renaming,
+  planning, applying, importing, the guards against losing edits, and that markup in names and SQL stays text.
 - 41 tests run against a real account (`tests\Test-Live.ps1`, in a scratch database that it drops): every statement of the
   plan is accepted, a graph that was installed reads back as what was wanted so that the next plan is empty, a graph made by
   hand with a name with a space, a cron schedule in a time zone, a serverless task, a finalizer and a body in `BEGIN ... END`
