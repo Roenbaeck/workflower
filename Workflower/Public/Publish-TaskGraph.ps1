@@ -13,7 +13,7 @@ function Publish-TaskGraph {
     #>
     [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'Graph')]
     param(
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true, ParameterSetName = 'Graph')] $Graph,
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true, ParameterSetName = "Graph", Position = 0)] $Graph,
         [Parameter(Mandatory = $true, ParameterSetName = 'Plan')] $Plan,
         [Parameter(Mandatory = $true)] $Session,
         [switch] $SkipValidation

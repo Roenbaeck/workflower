@@ -10,8 +10,8 @@ function global:Assert-True {
 
 function global:Assert-Equal {
     param($Actual, $Expected, [string] $Message)
-    $a = ConvertTo-Json -InputObject $Actual -Depth 8 -Compress
-    $e = ConvertTo-Json -InputObject $Expected -Depth 8 -Compress
+    $a = ConvertTo-Json -InputObject @($Actual) -Depth 8 -Compress
+    $e = ConvertTo-Json -InputObject @($Expected) -Depth 8 -Compress
     if ($a -ceq $e) { $global:Passed++; Write-Host ('  ok    ' + $Message) }
     else { $global:Failed++; Write-Host ('  FAIL  ' + $Message) -ForegroundColor Red; Write-Host ('        expected: ' + $e); Write-Host ('        actual:   ' + $a) }
 }

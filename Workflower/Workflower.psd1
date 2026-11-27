@@ -9,7 +9,7 @@
         'New-WfSession', 'Invoke-WfSql',
         'Get-TaskGraph', 'Test-TaskGraph', 'ConvertTo-TaskGraphSql', 'Compare-TaskGraph', 'Publish-TaskGraph',
         'Export-TaskGraph', 'Import-TaskGraph',
-        'Resume-TaskGraph', 'Suspend-TaskGraph', 'Start-TaskGraph', 'Get-TaskGraphRun'
+        'Resume-TaskGraph', 'Suspend-TaskGraph', 'Start-TaskGraph', 'Get-TaskGraphRun', 'Start-Workflower'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()

@@ -72,7 +72,8 @@ function Get-TaskGraphRun {
     .DESCRIPTION
         Reads the task history that Snowflake keeps (INFORMATION_SCHEMA.TASK_HISTORY, which keeps a few days and needs the role to
         own the tasks or to have the MONITOR privilege on them). A run is the tasks that share a graph run group. State is
-        FAILED if a task failed, RUNNING if one is scheduled or executing, else the state of the root.
+        FAILED if a task failed, RUNNING if one is executing or the run has started and tasks are still waiting, SCHEDULED if the run
+        has not started yet, else the state of the root.
     .EXAMPLE
         Get-TaskGraphRun $s -Database ETL -Schema LOAD -Root LOAD_ROOT -Hours 48 | Select-Object RunId, State, Started, Seconds
     #>
@@ -110,11 +111,13 @@ function ConvertFrom-WfHistoryRows {
         })
         $rootRow = @($tasks | Where-Object { $_.Task -ceq $Root } | Select-Object -First 1)
         $state = 'SUCCEEDED'
-        if (@($tasks | Where-Object { $_.State -match '^(SCHEDULED|EXECUTING)$' }).Count -gt 0) { $state = 'RUNNING' }
+        if (@($tasks | Where-Object { $_.State -eq 'EXECUTING' }).Count -gt 0) { $state = 'RUNNING' }
+        elseif (@($tasks | Where-Object { $_.State -eq 'SCHEDULED' }).Count -eq $tasks.Count) { $state = 'SCHEDULED' }
+        elseif (@($tasks | Where-Object { $_.State -eq 'SCHEDULED' }).Count -gt 0) { $state = 'RUNNING' }
         elseif (@($tasks | Where-Object { $_.State -eq 'FAILED' }).Count -gt 0) { $state = 'FAILED' }
         elseif ($rootRow.Count -gt 0) { $state = $rootRow[0].State }
-        $starts = @($tasks | Where-Object { $_.Started } | ForEach-Object { [datetime]::Parse($_.Started, [Globalization.CultureInfo]::InvariantCulture) } | Sort-Object)
-        $ends = @($tasks | Where-Object { $_.Completed } | ForEach-Object { [datetime]::Parse($_.Completed, [Globalization.CultureInfo]::InvariantCulture) } | Sort-Object)
+        $starts = @($tasks | Where-Object { $_.Started } | ForEach-Object { [datetime]::Parse($_.Started, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } | Sort-Object)
+        $ends = @($tasks | Where-Object { $_.Completed } | ForEach-Object { [datetime]::Parse($_.Completed, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } | Sort-Object)
         $seconds = $null
         if ($starts.Count -gt 0 -and $ends.Count -gt 0) { $seconds = [math]::Round(($ends[$ends.Count - 1] - $starts[0]).TotalSeconds, 1) }
         $scheduled = ''

@@ -40,6 +40,11 @@ function ConvertTo-WfJson {
     if ($Value -is [bool]) { if ($Value) { return 'true' } else { return 'false' } }
     if ($Value -is [string]) { return (ConvertTo-WfJsonString $Value) }
     if ($Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) { return ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $Value)) }
+    if ($Value -is [System.Management.Automation.PSCustomObject]) {
+        $d = [ordered]@{}
+        foreach ($p in $Value.psobject.Properties) { $d[$p.Name] = $p.Value }
+        return (ConvertTo-WfJson $d $Indent)
+    }
     if ($Value -is [System.Collections.IDictionary]) {
         if ($Value.Count -eq 0) { return '{}' }
         $items = @()

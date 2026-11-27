@@ -24,9 +24,11 @@ function New-WfSession {
         [Parameter(ParameterSetName = 'Api')][string] $TokenFile,
         [Parameter(ParameterSetName = 'Api')][ValidateSet('PROGRAMMATIC_ACCESS_TOKEN', 'OAUTH', 'KEYPAIR_JWT')][string] $TokenType = 'PROGRAMMATIC_ACCESS_TOKEN',
         [Parameter(ParameterSetName = 'Cli', Mandatory = $true)][string] $Connection,
+        [Parameter(ParameterSetName = 'Demo', Mandatory = $true)][switch] $Demo,
         [string] $Warehouse,
         [string] $Role
     )
+    if ($PSCmdlet.ParameterSetName -eq 'Demo') { return (New-WfDemoSession) }
     if ($PSCmdlet.ParameterSetName -eq 'Cli') {
         return [pscustomobject]@{ Backend = 'Cli'; Connection = $Connection; Warehouse = $Warehouse; Role = $Role }
     }
@@ -53,6 +55,7 @@ function Invoke-WfSql {
         [string] $Schema,
         [int] $TimeoutSeconds = 300
     )
+    if ($Session.Backend -eq 'Demo') { return (Invoke-WfDemo $Session $Sql) }
     if ($Session.Backend -eq 'Cli') { return (Invoke-WfCli $Session $Sql $Database $Schema) }
     Invoke-WfApi $Session $Sql $Database $Schema $TimeoutSeconds
 }
@@ -70,7 +73,8 @@ function Get-WfApiError {
     try { $resp = $ErrorRecord.Exception.Response } catch { }
     if (-not $resp) { return $ErrorRecord.Exception.Message }
     $text = ''
-    try { $text = (New-Object System.IO.StreamReader($resp.GetResponseStream())).ReadToEnd() } catch { }
+    if ($ErrorRecord.ErrorDetails -and $ErrorRecord.ErrorDetails.Message) { $text = $ErrorRecord.ErrorDetails.Message }
+    else { try { $text = (New-Object System.IO.StreamReader($resp.GetResponseStream())).ReadToEnd() } catch { } }
     $code = [int]$resp.StatusCode
     $message = $text
     try {
@@ -109,8 +113,9 @@ function Invoke-WfApi {
         $o = (ConvertFrom-WfJson (Read-WfResponse $r))
     }
     $meta = $o['resultSetMetaData']
-    if (-not $meta) { return ,@() }
+    if (-not $meta) { return }
     $names = @($meta['rowType'] | ForEach-Object { [string]$_['name'] })
+    $types = @($meta["rowType"] | ForEach-Object { [string]$_["type"] })
     $data = New-Object System.Collections.Generic.List[object]
     if ($o['data']) { foreach ($row in $o['data']) { $data.Add($row) } }
     $partitions = 1
@@ -125,11 +130,15 @@ function Invoke-WfApi {
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($row in $data) {
         $h = [ordered]@{}
-        for ($i = 0; $i -lt $names.Count; $i++) { $h[$names[$i]] = $row[$i] }
+        for ($i = 0; $i -lt $names.Count; $i++) {
+            $v = $row[$i]
+            if ($null -ne $v -and ($types[$i] -like "timestamp*" -or $types[$i] -eq "date")) { $v = ConvertFrom-WfEpoch ([string]$v) $types[$i] }
+            $h[$names[$i]] = $v
+        }
         $rows.Add([pscustomobject]$h)
     }
     $array = $rows.ToArray()
-    ,$array
+    $array
 }
 
 $script:WfSnowExe = $null
@@ -159,7 +168,7 @@ function Invoke-WfCli {
         try { $output = & (Get-WfSnowExe) @arguments 2>&1; $exit = $LASTEXITCODE } finally { $ErrorActionPreference = $saved }
         $text = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
         if ($exit -ne 0) { throw ('Snowflake CLI failed (exit ' + $exit + '):' + [Environment]::NewLine + $text) }
-        if (-not $text.Trim()) { return ,@() }
+        if (-not $text.Trim()) { return }
         $parsed = (ConvertFrom-WfJson $text)
         $rows = New-Object System.Collections.Generic.List[object]
         foreach ($item in @($parsed)) {
@@ -170,8 +179,23 @@ function Invoke-WfCli {
             }
         }
         $array = $rows.ToArray()
-        ,$array
+        $array
     } finally {
         Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
     }
+}
+
+# The SQL API gives a timestamp as seconds since 1970 (1795776358.179, and for a zoned one a space and the offset in minutes) and a date as
+# days since 1970. They are turned into ISO text: with a Z when they are an instant (ltz, tz), without when they are a wall clock (ntz).
+function ConvertFrom-WfEpoch {
+    param([string] $Text, [string] $Type)
+    $epoch = New-Object DateTime 1970, 1, 1, 0, 0, 0, ([DateTimeKind]::Utc)
+    $number = ($Text.Trim() -split ' ')[0]
+    $parsed = [decimal]0
+    if (-not [decimal]::TryParse($number, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) { return $Text }
+    if ($Type -eq 'date') { return $epoch.AddDays([double]$parsed).ToString('yyyy-MM-dd') }
+    $moment = $epoch.AddTicks([long]($parsed * 10000000))
+    $result = $moment.ToString('yyyy-MM-dd\THH:mm:ss.fff')
+    if ($Type -ne 'timestamp_ntz') { $result += 'Z' }
+    $result
 }

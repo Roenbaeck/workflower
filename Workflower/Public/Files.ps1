@@ -26,18 +26,7 @@ function Export-TaskGraph {
         $tasks = New-Object System.Collections.Generic.List[object]
         $folder = Join-Path $Directory ($base + '.d')
         foreach ($t in @($Graph.tasks)) {
-            $o = [ordered]@{ name = $t.name }
-            if (@($t.after).Count -gt 0) { $o.after = @($t.after) }
-            if ($t.finalize) { $o.finalize = $t.finalize }
-            if ($t.schedule) { $o.schedule = $t.schedule }
-            if ($t.warehouse) { $o.warehouse = $t.warehouse }
-            if ($t.condition) { $o.condition = $t.condition }
-            if ($null -ne $t.allowOverlappingExecution) { $o.allowOverlappingExecution = $t.allowOverlappingExecution }
-            if ($t.errorIntegration) { $o.errorIntegration = $t.errorIntegration }
-            if ($t.comment) { $o.comment = $t.comment }
-            if ($t.config) { $o.config = $t.config }
-            if ($t.parameters.Count -gt 0) { $o.parameters = $t.parameters }
-            if ($t.state -and -not $NoState) { $o.state = $t.state }
+            $o = ConvertTo-WfTaskDocument $t -NoState:$NoState
             if ($SplitDefinitions) {
                 if (-not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Path $folder | Out-Null }
                 $file = (($t.name -replace '[^\p{L}\p{N}_.\-]+', '_') + '.sql')

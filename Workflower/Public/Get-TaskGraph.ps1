@@ -23,14 +23,14 @@ function Get-TaskGraph {
     if ($Schema) { $scope = 'SCHEMA ' + (ConvertTo-WfIdentifier $Database) + '.' + (ConvertTo-WfIdentifier $Schema) }
     elseif ($Database) { $scope = 'DATABASE ' + (ConvertTo-WfIdentifier $Database) }
     else { $scope = 'ACCOUNT' }
-    $rows = Invoke-WfSql $Session ('SHOW TASKS IN ' + $scope)
+    $rows = @(Invoke-WfSql $Session ("SHOW TASKS IN " + $scope))
     $graphs = ConvertFrom-WfTaskRows $rows
     if ($Root) { $graphs = @($graphs | Where-Object { $_.root -ceq $Root }) }
     if (-not $NoParameters) {
         foreach ($g in $graphs) {
             foreach ($t in @($g.tasks)) {
                 $q = ConvertTo-WfQualified $g.database $g.schema $t.name
-                $params = Invoke-WfSql $Session ('SHOW PARAMETERS IN TASK ' + $q)
+                $params = @(Invoke-WfSql $Session ("SHOW PARAMETERS IN TASK " + $q))
                 foreach ($p in $params) {
                     if ((Get-WfValue $p 'level') -eq 'TASK') {
                         $t.parameters[[string](Get-WfValue $p 'key')] = [string](Get-WfValue $p 'value')
@@ -42,7 +42,7 @@ function Get-TaskGraph {
             }
         }
     }
-    ,@($graphs)
+    $graphs
 }
 
 # The rows of SHOW TASKS as graphs.

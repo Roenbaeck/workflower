@@ -83,7 +83,11 @@ function Test-TaskGraph {
         if ($rootName) {
             $root = $names[$rootName]
             if (-not $root.schedule -and -not $root.condition) {
-                & $add 'info' $rootName 'manual-root' ("The root '" + $rootName + "' has no schedule and no condition, so the graph runs only when it is run by hand (EXECUTE TASK).")
+                if ($root.state -eq 'started') {
+                    & $add 'error' $rootName 'root-cannot-start' ("The root '" + $rootName + "' has no schedule and no condition, and Snowflake does not resume such a task; it can only be run by hand (EXECUTE TASK).")
+                } else {
+                    & $add 'info' $rootName 'manual-root' ("The root '" + $rootName + "' has no schedule and no condition, so the graph runs only when it is run by hand (EXECUTE TASK).")
+                }
             }
             if ($root.state -eq 'started') {
                 foreach ($t in $tasks) {
