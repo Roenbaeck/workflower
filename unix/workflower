@@ -1,0 +1,456 @@
+#!/bin/sh
+# Workflower for macOS and Linux: read, check, compare, change and run Snowflake task graphs, whoever made them.
+#
+# It needs only a POSIX shell, the usual tools (sed, tr, grep, base64, mktemp) and the Snowflake CLI (snow). The work is done inside
+# Snowflake by engine.js, an anonymous JavaScript procedure that creates nothing (see PROTOCOL.md); this script sends the request
+# through `snow sql` and shows the answer.
+#
+#   workflower graphs   -c conn -d DB [-s SCHEMA] [-r ROOT] [--parameters]
+#   workflower export   -c conn -d DB -s SCHEMA [-r ROOT] -o DIR [--split] [--no-state] [--force]
+#   workflower check    -c conn FILE... [-d DB] [-s SCHEMA] [--warehouse WH]
+#   workflower sql      -c conn FILE... [-d DB] [-s SCHEMA] [--warehouse WH]
+#   workflower plan     -c conn FILE... [-d DB] [-s SCHEMA] [--warehouse WH]
+#   workflower apply    -c conn FILE... [-d DB] [-s SCHEMA] [--warehouse WH] [-y]
+#   workflower resume|suspend|run|retry   -c conn -d DB -s SCHEMA -r ROOT
+#   workflower runs     -c conn -d DB -s SCHEMA -r ROOT [--hours 24] [--limit 20]
+#   workflower view     -c conn -d DB [-s SCHEMA] [-o DIR] [--hours 24] [--no-open]
+#
+# Run `workflower help` for the options.
+
+set -eu
+
+VERSION=1.0.0
+
+here=$0
+while [ -h "$here" ]; do
+    target=$(readlink "$here")
+    case $target in
+        /*) here=$target ;;
+        *) here=$(dirname "$here")/$target ;;
+    esac
+done
+HERE=$(cd "$(dirname "$here")" && pwd)
+ENGINE=${WORKFLOWER_ENGINE:-$HERE/engine.js}
+
+SNOW=${WORKFLOWER_SNOW:-snow}
+CONNECTION=${WORKFLOWER_CONNECTION:-}
+ROLE=
+SESSION_WAREHOUSE=
+
+usage() {
+    cat <<'EOF'
+Workflower for macOS and Linux. It needs the Snowflake CLI (snow) and a connection (snow connection add).
+
+Usage: workflower <command> [options] [files]
+
+Commands
+  graphs               list the task graphs of a schema, a database or the account
+  export               write the graphs as JSON files (one per graph) into a folder
+  check FILE...        check graph files against the rules of Snowflake
+  sql FILE...          the CREATE TASK script of graph files
+  plan FILE...         what has to change to make the installed graph what the file says (nothing is changed)
+  apply FILE...        plan, ask, and change it
+  resume | suspend     start or stop an installed graph (children before the root, or the root first)
+  run | retry          run an installed graph now, or continue its last run from the tasks that failed
+  runs                 the runs of a graph, newest first, with the errors of failed tasks
+  view                 a read-only picture of the graphs of a schema and their runs: a folder with a page to open in a browser
+  help | version
+
+Connection
+  -c, --connection NAME    the connection of the Snowflake CLI (or set WORKFLOWER_CONNECTION)
+  --role ROLE              use this role for the session
+  --session-warehouse WH   use this warehouse for the session (it runs the statements; the tasks have their own)
+
+Which graph
+  -d, --database NAME      the database (for a file: replaces the file's database)
+  -s, --schema NAME        the schema (for a file: replaces the file's schema)
+  -r, --root NAME          the root task of the graph
+  --warehouse WH           for a file: replaces the warehouse of every task that has one (promotion to another environment)
+
+Other
+  -o, --output DIR         export: the folder to write to
+  --split                  export: write each task's SQL to its own .sql file
+  --no-state               export: leave out whether a task is started or suspended
+  --force                  export: overwrite files that are there
+  --parameters             graphs: also read the parameters set on each task (slower)
+  --hours N, --limit N     runs: how far back (default 24) and how many (default 20)
+  -y, --yes                apply: do not ask
+  --no-open                view: make the folder but do not open it in a browser
+  --json                   print the machine readable answer as well
+
+Names are exact: write them as Snowflake stores them (upper case unless the task was made with a quoted name).
+Exit codes: 0 done, 1 the check found an error or a step failed, 2 the request could not be made (snow failed), 64 wrong usage.
+EOF
+}
+
+die() {
+    printf '%s\n' "workflower: $*" >&2
+    exit 64
+}
+
+# --- text helpers ----------------------------------------------------------------------------------------------------------------
+
+TAB=$(printf '\t')
+
+# A string for JSON: backslash, quote, tab and line break escaped.
+json_str() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$TAB/\\\\t/g" | awk 'BEGIN { ORS = "" } NR > 1 { print "\\n" } { print }'
+}
+
+# base64 of the standard input, on one line (GNU base64 wraps at 76 characters, BSD does not).
+b64enc() {
+    base64 | tr -d '\n\r'
+}
+
+if printf 'YQ==' | base64 -d >/dev/null 2>&1; then
+    B64DEC=-d
+else
+    B64DEC=-D
+fi
+
+b64dec() {
+    base64 "$B64DEC"
+}
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/workflower.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# --- one request to the engine -----------------------------------------------------------------------------------------------------
+
+# call_engine OP ARGS_JSON: runs the engine in Snowflake and leaves the decoded answer in $TMP/answer.
+call_engine() {
+    op=$1
+    args=$2
+    [ -f "$ENGINE" ] || { printf '%s\n' "workflower: engine.js is not next to this script ($ENGINE)" >&2; exit 2; }
+    argsb64=$(printf '%s' "$args" | b64enc)
+    {
+        printf '%s\n' 'WITH wf AS PROCEDURE (OP VARCHAR, ARGS VARCHAR) RETURNS VARCHAR LANGUAGE JAVASCRIPT AS'
+        printf '%s\n' '$$'
+        cat "$ENGINE"
+        printf '\n%s\n' '$$'
+        printf "CALL wf('%s', BASE64_DECODE_STRING('%s'))\n" "$op" "$argsb64"
+    } >"$TMP/request.sql"
+    set -- sql --enable-templating NONE --format JSON -f "$TMP/request.sql"
+    [ -n "$CONNECTION" ] && set -- "$@" -c "$CONNECTION"
+    [ -n "$ROLE" ] && set -- "$@" --role "$ROLE"
+    [ -n "$SESSION_WAREHOUSE" ] && set -- "$@" --warehouse "$SESSION_WAREHOUSE"
+    if ! "$SNOW" "$@" >"$TMP/out.json" 2>"$TMP/err.txt"; then
+        cat "$TMP/err.txt" >&2
+        cat "$TMP/out.json" >&2
+        exit 2
+    fi
+    token=$(grep -o '"[A-Za-z0-9+/=]\{24,\}"' "$TMP/out.json" | head -n 1 | tr -d '"')
+    if [ -z "$token" ]; then
+        printf '%s\n' 'workflower: the answer of Snowflake had no result:' >&2
+        cat "$TMP/out.json" >&2
+        exit 2
+    fi
+    printf '%s' "$token" | b64dec >"$TMP/answer"
+}
+
+# show_answer [OUTPUT_DIR] [FORCE]: acts on $TMP/answer; sets STEPS and returns the exit code that the answer asks for.
+show_answer() {
+    outdir=${1:-}
+    force=${2:-0}
+    STEPS=
+    code=
+    status=ok
+    : >"$TMP/files"
+    while IFS= read -r line || [ -n "$line" ]; do
+        word=${line%% *}
+        rest=
+        case $line in *' '*) rest=${line#* } ;; esac
+        case $word in
+            STATUS) status=$rest ;;
+            EXIT) code=$rest ;;
+            STEPS) STEPS=$rest ;;
+            TEXT)
+                text=$(printf '%s' "$rest" | b64dec; printf x)
+                text=${text%x}
+                if [ "$status" = error ]; then printf '%s' "$text" >&2; else printf '%s' "$text"; fi
+                case $text in *'
+') ;; *) if [ "$status" = error ]; then printf '\n' >&2; else printf '\n'; fi ;; esac
+                ;;
+            JSON)
+                if [ -n "$JSON_FILE" ]; then printf '%s' "$rest" | b64dec >"$JSON_FILE"; fi
+                if [ "$WANT_JSON" = 1 ]; then printf '%s' "$rest" | b64dec; printf '\n'; fi
+                ;;
+            FILE) printf '%s\n' "$rest" >>"$TMP/files" ;;
+        esac
+    done <"$TMP/answer"
+    if [ -s "$TMP/files" ]; then write_files "$outdir" "$force"; fi
+    if [ -z "$code" ]; then
+        if [ "$status" = ok ]; then code=0; else code=1; fi
+    fi
+    return "$code"
+}
+
+# The files of an answer, after checking every name: nothing outside the folder, nothing overwritten without --force.
+write_files() {
+    outdir=$1
+    force=$2
+    [ -n "$outdir" ] || { printf '%s\n' 'workflower: the answer has files but no -o folder was given' >&2; exit 64; }
+    while IFS= read -r entry; do
+        path=${entry%% *}
+        data=${entry#* }
+        case $data in *[!A-Za-z0-9+/=]*) printf '%s
+' "workflower: the data of $path is not base64" >&2; exit 2 ;; esac
+        case $path in
+            ''|.*|*[!A-Za-z0-9_./-]*) printf '%s\n' "workflower: refusing the file name '$path'" >&2; exit 2 ;;
+        esac
+        sub=${path#*/}
+        case $sub in */*) printf '%s\n' "workflower: refusing the file name '$path'" >&2; exit 2 ;; esac
+        if [ "$force" != 1 ] && [ -e "$outdir/$path" ]; then
+            printf '%s\n' "workflower: refusing to overwrite $outdir/$path (use --force)" >&2
+            exit 2
+        fi
+    done <"$TMP/files"
+    mkdir -p "$outdir"
+    while IFS= read -r entry; do
+        path=${entry%% *}
+        data=${entry#* }
+        case $data in *[!A-Za-z0-9+/=]*) printf '%s\n' "workflower: the data of $path is not base64" >&2; exit 2 ;; esac
+        case $path in */*) mkdir -p "$outdir/${path%/*}" ;; esac
+        printf '%s' "$data" | b64dec >"$outdir/$path"
+        printf '%s\n' "wrote $outdir/$path"
+    done <"$TMP/files"
+}
+
+# --- reading a graph file --------------------------------------------------------------------------------------------------------
+
+# validate_file FILE: stops the script, in the main shell (a die inside $(...) would not), if a graph file cannot be sent: it is not
+# there, or it names a definitionFile that is missing or that is not a path inside the folder of the file.
+validate_file() {
+    f=$1
+    [ -f "$f" ] || die "there is no file $f"
+    docdir=$(dirname "$f")
+    refs=$(grep -o '"definitionFile"[[:space:]]*:[[:space:]]*"[^"]*"' "$f" | sed -e 's/^"definitionFile"[[:space:]]*:[[:space:]]*"//' -e 's/"$//' || true)
+    [ -n "$refs" ] || return 0
+    oldifs=$IFS
+    IFS='
+'
+    for ref in $refs; do
+        case $ref in /*|*..*|'') die "$f: the definitionFile '$ref' is not a path inside the folder of the file" ;; esac
+        [ -f "$docdir/$ref" ] || die "$f: the definitionFile $ref is not there"
+    done
+    IFS=$oldifs
+}
+
+# file_args FILE: the "doc", "files" and override parts of a request for a graph file (validate_file has been run).
+file_args() {
+    f=$1
+    docdir=$(dirname "$f")
+    docb64=$(b64enc <"$f")
+    filesjson=
+    refs=$(grep -o '"definitionFile"[[:space:]]*:[[:space:]]*"[^"]*"' "$f" | sed -e 's/^"definitionFile"[[:space:]]*:[[:space:]]*"//' -e 's/"$//' || true)
+    if [ -n "$refs" ]; then
+        oldifs=$IFS
+        IFS='
+'
+        for ref in $refs; do
+            # a reference is a path beside the file, with no way out of its folder
+            case $ref in /*|*..*|'') die "$f: the definitionFile '$ref' is not a path inside the folder of the file" ;; esac
+            [ -f "$docdir/$ref" ] || die "$f: the definitionFile $ref is not there"
+            part="\"$(json_str "$ref")\":\"$(b64enc <"$docdir/$ref")\""
+            if [ -n "$filesjson" ]; then filesjson="$filesjson,$part"; else filesjson=$part; fi
+        done
+        IFS=$oldifs
+    fi
+    out="\"doc\":\"$docb64\",\"files\":{$filesjson}"
+    [ -n "$O_DATABASE" ] && out="$out,\"database\":\"$(json_str "$O_DATABASE")\""
+    [ -n "$O_SCHEMA" ] && out="$out,\"schema\":\"$(json_str "$O_SCHEMA")\""
+    [ -n "$O_WAREHOUSE" ] && out="$out,\"warehouse\":\"$(json_str "$O_WAREHOUSE")\""
+    printf '%s' "$out"
+}
+
+# graph_args: the identity of an installed graph.
+graph_args() {
+    out=
+    [ -n "$O_DATABASE" ] && out="\"database\":\"$(json_str "$O_DATABASE")\""
+    if [ -n "$O_SCHEMA" ]; then
+        [ -n "$out" ] && out="$out,"
+        out="$out\"schema\":\"$(json_str "$O_SCHEMA")\""
+    fi
+    if [ -n "$O_ROOT" ]; then
+        [ -n "$out" ] && out="$out,"
+        out="$out\"root\":\"$(json_str "$O_ROOT")\""
+    fi
+    printf '%s' "$out"
+}
+
+need() {
+    [ -n "$2" ] || die "$1 is needed"
+}
+
+# --- the command line --------------------------------------------------------------------------------------------------------------
+
+[ $# -ge 1 ] || { usage; exit 64; }
+COMMAND=$1
+shift
+case $COMMAND in
+    help|-h|--help) usage; exit 0 ;;
+    version|--version) printf '%s\n' "workflower $VERSION"; exit 0 ;;
+    graphs|list|export|check|sql|plan|apply|resume|suspend|run|retry|runs|view) ;;
+    *) die "unknown command '$COMMAND' (see workflower help)" ;;
+esac
+
+O_DATABASE=
+O_SCHEMA=
+O_ROOT=
+O_WAREHOUSE=
+O_OUTPUT=
+O_SPLIT=false
+O_NOSTATE=false
+O_FORCE=0
+O_PARAMETERS=false
+O_HOURS=24
+O_LIMIT=20
+O_YES=0
+O_NOOPEN=0
+JSON_FILE=
+WANT_JSON=0
+FILES=
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        -c|--connection) [ $# -ge 2 ] || die "$1 needs a value"; CONNECTION=$2; shift 2 ;;
+        --role) [ $# -ge 2 ] || die "$1 needs a value"; ROLE=$2; shift 2 ;;
+        --session-warehouse) [ $# -ge 2 ] || die "$1 needs a value"; SESSION_WAREHOUSE=$2; shift 2 ;;
+        -d|--database) [ $# -ge 2 ] || die "$1 needs a value"; O_DATABASE=$2; shift 2 ;;
+        -s|--schema) [ $# -ge 2 ] || die "$1 needs a value"; O_SCHEMA=$2; shift 2 ;;
+        -r|--root) [ $# -ge 2 ] || die "$1 needs a value"; O_ROOT=$2; shift 2 ;;
+        --warehouse) [ $# -ge 2 ] || die "$1 needs a value"; O_WAREHOUSE=$2; shift 2 ;;
+        -o|--output) [ $# -ge 2 ] || die "$1 needs a value"; O_OUTPUT=$2; shift 2 ;;
+        --split) O_SPLIT=true; shift ;;
+        --no-state) O_NOSTATE=true; shift ;;
+        --force) O_FORCE=1; shift ;;
+        --parameters) O_PARAMETERS=true; shift ;;
+        --hours) [ $# -ge 2 ] || die "$1 needs a value"; O_HOURS=$2; shift 2 ;;
+        --limit) [ $# -ge 2 ] || die "$1 needs a value"; O_LIMIT=$2; shift 2 ;;
+        -y|--yes) O_YES=1; shift ;;
+        --no-open) O_NOOPEN=1; shift ;;
+        --json) WANT_JSON=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; break ;;
+        -*) die "unknown option '$1'" ;;
+        *) FILES="$FILES
+$1"; shift ;;
+    esac
+done
+for rest in "$@"; do FILES="$FILES
+$rest"; done
+
+case $O_HOURS$O_LIMIT in *[!0-9]*) die "--hours and --limit are numbers" ;; esac
+
+# run_for_files OP: the same request for every file; the worst exit code is the result.
+run_for_files() {
+    op=$1
+    [ -n "$FILES" ] || die "$op needs a graph file"
+    worst=0
+    oldifs=$IFS
+    IFS='
+'
+    for f in $FILES; do
+        [ -n "$f" ] || continue
+        validate_file "$f"
+        IFS=$oldifs
+        printf '%s\n' "== $f"
+        call_engine "$op" "{$(file_args "$f")}"
+        rc=0
+        show_answer "" 0 || rc=$?
+        [ "$rc" -gt "$worst" ] && worst=$rc
+        IFS='
+'
+    done
+    IFS=$oldifs
+    return "$worst"
+}
+
+case $COMMAND in
+    graphs|list)
+        need "-d/--database" "$O_DATABASE"
+        call_engine graphs "{$(graph_args),\"parameters\":$O_PARAMETERS}"
+        rc=0; show_answer "" 0 || rc=$?
+        exit "$rc"
+        ;;
+    export)
+        need "-d/--database" "$O_DATABASE"
+        need "-s/--schema" "$O_SCHEMA"
+        need "-o/--output" "$O_OUTPUT"
+        call_engine export "{$(graph_args),\"split\":$O_SPLIT,\"noState\":$O_NOSTATE}"
+        rc=0; show_answer "$O_OUTPUT" "$O_FORCE" || rc=$?
+        exit "$rc"
+        ;;
+    check|sql|plan)
+        rc=0; run_for_files "$COMMAND" || rc=$?
+        exit "$rc"
+        ;;
+    apply)
+        [ -n "$FILES" ] || die "apply needs a graph file"
+        worst=0
+        oldifs=$IFS
+        IFS='
+'
+        for f in $FILES; do
+            [ -n "$f" ] || continue
+            validate_file "$f"
+            IFS=$oldifs
+            printf '%s\n' "== $f"
+            call_engine plan "{$(file_args "$f")}"
+            rc=0; show_answer "" 0 || rc=$?
+            if [ "$rc" -ne 0 ]; then worst=$rc; IFS='
+'; continue; fi
+            if [ "${STEPS:-0}" = 0 ]; then IFS='
+'; continue; fi
+            if [ "$O_YES" != 1 ]; then
+                printf 'Run these %s steps? [y/N] ' "$STEPS"
+                answer=; read -r answer || true
+                case $answer in y|Y|yes|YES) ;; *) printf '%s\n' 'not applied'; IFS='
+'; continue ;; esac
+            fi
+            call_engine apply "{$(file_args "$f")}"
+            rc=0; show_answer "" 0 || rc=$?
+            [ "$rc" -gt "$worst" ] && worst=$rc
+            IFS='
+'
+        done
+        IFS=$oldifs
+        exit "$worst"
+        ;;
+    resume|suspend|run|retry)
+        need "-d/--database" "$O_DATABASE"; need "-s/--schema" "$O_SCHEMA"; need "-r/--root" "$O_ROOT"
+        call_engine operate "{$(graph_args),\"action\":\"$COMMAND\"}"
+        rc=0; show_answer "" 0 || rc=$?
+        exit "$rc"
+        ;;
+    view)
+        need "-d/--database" "$O_DATABASE"
+        UI=${WORKFLOWER_UI:-$HERE/../Workflower/ui}
+        [ -f "$UI/index.html" ] || die "the interface files are not in $UI (set WORKFLOWER_UI)"
+        if [ -n "$O_OUTPUT" ]; then viewdir=$O_OUTPUT; else viewdir=$(mktemp -d "${TMPDIR:-/tmp}/workflower-view.XXXXXX"); fi
+        JSON_FILE=$TMP/view.json
+        call_engine view "{$(graph_args),\"hours\":$O_HOURS}"
+        rc=0; show_answer "" 0 || rc=$?
+        [ "$rc" -eq 0 ] || exit "$rc"
+        [ -s "$JSON_FILE" ] || { printf '%s\n' 'workflower: the engine gave no data for the viewer' >&2; exit 2; }
+        mkdir -p "$viewdir"
+        for name in index.html app.css app.js layout.js ui-kit.js Snowflower.svg site.webmanifest favicon.ico favicon-16x16.png favicon-32x32.png apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png; do
+            [ -f "$UI/$name" ] && cp "$UI/$name" "$viewdir/$name"
+        done
+        { printf 'window.WORKFLOWER_DATA = '; cat "$JSON_FILE"; printf ';\n'; } >"$viewdir/data.js"
+        printf '%s\n' "the viewer is in $viewdir (open index.html in a browser)"
+        if [ "$O_NOOPEN" != 1 ]; then
+            case $(uname -s 2>/dev/null) in
+                Darwin) open "$viewdir/index.html" >/dev/null 2>&1 || true ;;
+                *) if command -v xdg-open >/dev/null 2>&1; then xdg-open "$viewdir/index.html" >/dev/null 2>&1 || true; fi ;;
+            esac
+        fi
+        exit 0
+        ;;
+    runs)
+        need "-d/--database" "$O_DATABASE"; need "-s/--schema" "$O_SCHEMA"; need "-r/--root" "$O_ROOT"
+        call_engine runs "{$(graph_args),\"hours\":$O_HOURS,\"limit\":$O_LIMIT}"
+        rc=0; show_answer "" 0 || rc=$?
+        exit "$rc"
+        ;;
+esac

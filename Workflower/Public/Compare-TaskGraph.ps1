@@ -22,7 +22,7 @@ function Compare-TaskGraph {
         $db = $Desired.database; $sc = $Desired.schema
         if (-not $db -or -not $sc) { throw 'The graph says no database and schema; give them in the file or with Import-TaskGraph -Database -Schema.' }
         $desired = $Desired
-        $wanted = @{}
+        $wanted = New-WfMap
         foreach ($t in @($desired.tasks)) { $wanted[$t.name] = $t }
         if (-not $PSBoundParameters.ContainsKey("Actual")) {
             if (-not $Session) { throw "Compare-TaskGraph needs -Session to read the installed graph (or -Actual)." }
@@ -56,14 +56,14 @@ function Compare-TaskGraph {
         }
 
         $actual = $Actual
-        $have = @{}
+        $have = New-WfMap
         foreach ($t in @($actual.tasks)) { $have[$t.name] = $t }
         $actualRoot = $have[$actual.root]
         $actualOrder = Get-WfTaskOrder @($actual.tasks)
 
         $added = @($desired.tasks | Where-Object { -not $have.ContainsKey($_.name) })
         $removed = @($actualOrder.Order | Where-Object { -not $wanted.ContainsKey($_.name) })
-        $changes = @{}
+        $changes = New-WfMap
         foreach ($t in @($desired.tasks)) {
             if ($have.ContainsKey($t.name)) {
                 $d = @(Get-WfTaskDifference $t $have[$t.name])
@@ -142,7 +142,7 @@ function Compare-TaskGraph {
         $result = New-WfPlan $desired $true $steps.ToArray()
         $result.Added = @($added | ForEach-Object { $_.name })
         $result.Removed = @($removed | ForEach-Object { $_.name })
-        $result.Changed = @($changes.Keys | Sort-Object)
+        $result.Changed = @($changes.Keys | Sort-WfOrdinal)
         $result
     }
 }
@@ -175,10 +175,10 @@ function Get-WfTaskDifference {
     }
     # a field that is not said (null) is not compared for the flag, since Snowflake gives the root a value and a child none
     if ($null -ne $Wanted.allowOverlappingExecution -and $Wanted.allowOverlappingExecution -ne $Installed.allowOverlappingExecution) { $d.Add('allowOverlappingExecution') }
-    $a1 = @(@($Wanted.after) | Sort-Object) -join "`n"; $a2 = @(@($Installed.after) | Sort-Object) -join "`n"
+    $a1 = @(@($Wanted.after) | Sort-WfOrdinal) -join "`n"; $a2 = @(@($Installed.after) | Sort-WfOrdinal) -join "`n"
     if ($a1 -cne $a2) { $d.Add('after') }
     if ((ConvertTo-WfComparable $Wanted.finalize) -cne (ConvertTo-WfComparable $Installed.finalize)) { $d.Add('finalize') }
-    $keys = @(@($Wanted.parameters.Keys) + @($Installed.parameters.Keys) | Sort-Object -Unique)
+    $keys = @(@($Wanted.parameters.Keys) + @($Installed.parameters.Keys) | Sort-WfOrdinal -Unique)
     foreach ($k in $keys) {
         $w = $null; $i = $null
         if ($Wanted.parameters.Contains($k)) { $w = [string]$Wanted.parameters[$k] }

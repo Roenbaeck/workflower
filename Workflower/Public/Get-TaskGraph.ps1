@@ -37,7 +37,7 @@ function Get-TaskGraph {
                     }
                 }
                 $sorted = [ordered]@{}
-                foreach ($k in ($t.parameters.Keys | Sort-Object)) { $sorted[$k] = $t.parameters[$k] }
+                foreach ($k in ($t.parameters.Keys | Sort-WfOrdinal)) { $sorted[$k] = $t.parameters[$k] }
                 $t.parameters = $sorted
             }
         }
@@ -59,9 +59,9 @@ function ConvertFrom-WfTaskRows {
     foreach ($key in $bySchema.Keys) {
         $rows = $bySchema[$key].ToArray()
         $db = [string](Get-WfValue $rows[0] 'database_name'); $sc = [string](Get-WfValue $rows[0] 'schema_name')
-        $tasks = @{}
+        $tasks = New-WfMap
         $links = New-Object System.Collections.Generic.List[object]
-        $missing = @{}
+        $missing = New-WfMap
         foreach ($row in $rows) {
             $t = New-WfTaskObject ([string](Get-WfValue $row 'name'))
             $t.definition = [string](Get-WfValue $row 'definition')
@@ -106,10 +106,10 @@ function ConvertFrom-WfTaskRows {
             if ($hit.Count -eq 1) { return $hit[0] }
             $null
         }
-        $parent = @{}
+        $parent = New-WfMap
         foreach ($n in $names) { $parent[$n] = $n }
         $find = { param($x) while ($parent[$x] -ne $x) { $parent[$x] = $parent[$parent[$x]]; $x = $parent[$x] }; $x }
-        $incomplete = @{}
+        $incomplete = New-WfMap
         foreach ($l in $links) {
             $t = $tasks[$l.Task]
             $after = New-Object System.Collections.Generic.List[string]
@@ -126,7 +126,7 @@ function ConvertFrom-WfTaskRows {
             }
         }
         $groups = [ordered]@{}
-        foreach ($n in ($names | Sort-Object)) {
+        foreach ($n in ($names | Sort-WfOrdinal)) {
             $c = & $find $n
             if (-not $groups.Contains($c)) { $groups[$c] = New-Object System.Collections.Generic.List[object] }
             $groups[$c].Add($tasks[$n])
@@ -140,5 +140,5 @@ function ConvertFrom-WfTaskRows {
             $graphs.Add($g)
         }
     }
-    @($graphs | Sort-Object database, schema, root)
+    @($graphs | Sort-WfOrdinal -Key { [string]$_.database + [char]0 + [string]$_.schema + [char]0 + [string]$_.root })
 }

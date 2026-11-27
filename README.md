@@ -20,7 +20,9 @@ or by this one. Workflower keeps nothing in Snowflake. It reads the tasks with `
 
 ## Requirements
 
-- Windows PowerShell 5.1 or later. Nothing else has to be installed.
+- **Windows**: Windows PowerShell 5.1 or later. Nothing else has to be installed.
+- **macOS and Linux**: a POSIX shell, the usual tools (`sed`, `tr`, `grep`, `base64`) and the Snowflake CLI. Nothing else; see
+  [macOS and Linux](#macos-and-linux).
 - A way to Snowflake, either of
   - the SQL REST API with a token (a [programmatic access token](https://docs.snowflake.com/en/user-guide/programmatic-access-tokens),
     an OAuth token or a key-pair JWT), or
@@ -45,6 +47,43 @@ and a request for any other host is refused.
 Choose a database and a schema, and the graphs in it are listed. A graph is drawn left to right, with the state of every task
 and the outcome of its last run. Select a task to edit it. **Plan changes** shows exactly what will be sent, step by step;
 **Apply** runs it. Nothing changes before that.
+
+## macOS and Linux
+
+The same things, from a shell script that needs nothing but the Snowflake CLI (`snow`) and a connection (`snow connection add`):
+
+```sh
+unix/workflower graphs  -c default -d ETL -s LOAD                     # the graphs of a schema
+unix/workflower export  -c default -d ETL -s LOAD -o graphs --split   # JSON files, one per graph, and each task's SQL in its own file
+unix/workflower check   -c default graphs/ETL.LOAD.LOAD_ROOT.json     # the rules of Snowflake
+unix/workflower plan    -c default graphs/ETL.LOAD.LOAD_ROOT.json     # what would change, step by step
+unix/workflower apply   -c default graphs/ETL.LOAD.LOAD_ROOT.json     # asks, then changes (-y does not ask)
+unix/workflower plan    -c default graphs/ETL.LOAD.LOAD_ROOT.json -d ETL_PROD --warehouse PROD_WH   # the same file for production
+unix/workflower resume  -c default -d ETL -s LOAD -r LOAD_ROOT        # also suspend, run, retry
+unix/workflower runs    -c default -d ETL -s LOAD -r LOAD_ROOT --hours 48
+unix/workflower view    -c default -d ETL -s LOAD                     # a read-only page of the graphs and their runs, opened in the browser
+unix/workflower help
+```
+
+The files are the same as on Windows, so a graph exported on one system is planned and applied on the other, and the plan is the same
+steps with the same SQL (a differential test runs every case through both). `-c` can be left out when `WORKFLOWER_CONNECTION` is set;
+`--role` and `--session-warehouse` choose the role and warehouse of the session.
+
+How it works, because a shell script can neither parse JSON nor plan a change: the logic is `unix/engine.js`, JavaScript that the script
+sends to Snowflake as an anonymous procedure (`WITH wf AS PROCEDURE ... CALL wf(...)`), which **creates nothing** in the account and runs
+with the rights of your role. The script sends the request through `snow sql` and shows the answer (the protocol is in
+`unix/PROTOCOL.md`). So the account must allow JavaScript procedures, as accounts do by default.
+
+What differs from Windows: there is no editing page, since a page that edits needs a local server, which a shell script cannot be.
+`view` gives the same canvas, inspector and run history as a static, read-only page (a folder with the page and a `data.js`; nothing is
+sent anywhere). To change a graph, edit its file and `plan` and `apply` it.
+
+What has been checked: the shell script's own work on Linux and macOS in CI (`unix/tests/test-shell.sh`, with a canned `snow`, which
+includes the differences between GNU and BSD `base64`); the engine under an ES5 interpreter (249 checks) and against the PowerShell module
+(506 assertions over 60 cases); and the engine in Snowflake (108 checks) and the whole script and engine against a real account through
+a stand-in for `snow` that sends the same file through the REST API. **What has not been run is the script with the real Snowflake CLI**:
+the options it passes (`snow sql --enable-templating NONE --format JSON -f <file>`, `-c`, `--role`, `--warehouse`) are the ones that the
+CLI documents, but if a version of the CLI prints a result in another form the script will say that the answer had no result.
 
 ## The commands
 
@@ -132,7 +171,9 @@ every identifier is written quoted, so a file made by `Export-TaskGraph` always 
 
 - 81 tests need no Snowflake (`tests\Test-Offline.ps1`): fixtures shaped like `SHOW TASKS`, validation, rendering, the files
   and every kind of plan.
-- 30 tests run the web server and its API over HTTP with the demo session (`tests\Test-Api.ps1`).
+- 31 tests run the web server and its API over HTTP with the demo session (`tests\Test-Api.ps1`), and the interface has a self-test of
+  193 checks that runs in a headless Edge or Chrome against the demo server (`tests\Test-Ui.ps1`): layout, editing, renaming,
+  planning, applying, importing, the guards against losing edits, and that markup in names and SQL stays text.
 - 41 tests run against a real account (`tests\Test-Live.ps1`, in a scratch database that it drops): every statement of the
   plan is accepted, a graph that was installed reads back as what was wanted so that the next plan is empty, a graph made by
   hand with a name with a space, a cron schedule in a time zone, a serverless task, a finalizer and a body in `BEGIN ... END`
@@ -154,10 +195,11 @@ Things that Snowflake does and that are good to know:
 ## Layout
 
 ```
-workflower.ps1            the interface
+workflower.ps1            the interface (Windows)
 Workflower/               the module (Public: the commands; Private: the model, the connection, the JSON)
 Workflower/ui/            the page (HTML, CSS, JavaScript; nothing is loaded from outside)
-tests/                    Test-Offline.ps1, Test-Api.ps1, Test-Live.ps1
+tests/                    Test-Offline.ps1, Test-Api.ps1, Test-Ui.ps1, Test-Live.ps1
+unix/                     macOS and Linux: workflower (the script), engine.js (the logic, run in Snowflake), PROTOCOL.md, tests/
 ```
 
 The first version of this tool kept workflows and run logs in an Anchor-modelled schema in Snowflake and rendered tasks with

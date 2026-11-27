@@ -62,7 +62,7 @@ function Import-TaskGraph {
     )
     process {
         $files = @()
-        if (Test-Path -LiteralPath $Path -PathType Container) { $files = @(Get-ChildItem -LiteralPath $Path -Filter '*.json' -File | Sort-Object Name) }
+        if (Test-Path -LiteralPath $Path -PathType Container) { $files = @(Get-ChildItem -LiteralPath $Path -Filter '*.json' -File | Sort-WfOrdinal -Key { $_.Name }) }
         else { $files = @(Get-Item -LiteralPath $Path) }
         foreach ($file in $files) {
             $text = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)

@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    name: Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline tests
+        shell: powershell
+        run: ./tests/Test-Offline.ps1
+      - name: API tests (the web server, with the demo session)
+        shell: powershell
+        run: ./tests/Test-Api.ps1
+
+  unix:
+    name: ${{ matrix.os }} shell script
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: The script is valid POSIX shell
+        run: sh -n unix/workflower
+      - name: Shell tests (a canned snow; no Snowflake)
+        run: sh unix/tests/test-shell.sh

@@ -88,13 +88,14 @@ function ConvertTo-WfTask {
     $t.config = ConvertTo-WfNullIfEmpty (Get-WfValue $Source 'config')
     $parameters = Get-WfValue $Source 'parameters'
     if ($null -ne $parameters) {
-        $pairs = @()
-        if ($parameters -is [System.Collections.IDictionary]) { foreach ($k in $parameters.Keys) { $pairs += , @([string]$k, $parameters[$k]) } }
-        else { foreach ($p in $parameters.psobject.Properties) { $pairs += , @($p.Name, $p.Value) } }
-        foreach ($pair in ($pairs | Sort-Object { $_[0] })) {
-            $v = $pair[1]
+        # name to value, by the name in upper case; a task with one parameter must work as one with several
+        $byName = New-WfMap
+        if ($parameters -is [System.Collections.IDictionary]) { foreach ($k in $parameters.Keys) { $byName[([string]$k).ToUpperInvariant()] = $parameters[$k] } }
+        else { foreach ($p in $parameters.psobject.Properties) { $byName[([string]$p.Name).ToUpperInvariant()] = $p.Value } }
+        foreach ($name in @($byName.Keys | Sort-WfOrdinal)) {
+            $v = $byName[$name]
             if ($v -is [bool]) { $v = $(if ($v) { 'TRUE' } else { 'FALSE' }) }
-            $t.parameters[$pair[0].ToUpperInvariant()] = [string]$v
+            $t.parameters[$name] = [string]$v
         }
     }
     $state = ConvertTo-WfNullIfEmpty (Get-WfValue $Source 'state')
@@ -117,10 +118,10 @@ function New-WfGraphObject {
 function Get-WfTaskOrder {
     param([Parameter(Mandatory = $true)] $Tasks)
     $all = @($Tasks)
-    $byName = @{}
+    $byName = New-WfMap
     foreach ($t in $all) { $byName[$t.name] = $t }
     $placed = New-Object System.Collections.Generic.List[object]
-    $done = @{}
+    $done = New-WfMap
     $progress = $true
     $rest = New-Object System.Collections.Generic.List[object]
     foreach ($t in $all) { if (-not $t.finalize) { $rest.Add($t) } }

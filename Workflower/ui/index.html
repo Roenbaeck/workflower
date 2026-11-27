@@ -1,1 +1,134 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Workflower</title><meta name="workflower-secret" content="__WORKFLOWER_SECRET__"></head><body>placeholder</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="workflower-secret" content="__WORKFLOWER_SECRET__">
+<title>Workflower</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<link rel="stylesheet" href="app.css">
+<script src="data.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#canvas-wrap">Skip to the graph</a>
+
+<header class="app-header">
+  <div class="brand">
+    <img src="Snowflower.svg" alt="" width="34" height="34">
+    <h1>Workflower</h1>
+  </div>
+  <div id="connection" class="connection" role="status">Connecting to the server...</div>
+  <div class="selectors">
+    <div class="select-group">
+      <label for="sel-db">Database</label>
+      <select id="sel-db" disabled><option value="">Loading...</option></select>
+    </div>
+    <div class="select-group">
+      <label for="sel-schema">Schema</label>
+      <select id="sel-schema" disabled><option value="">Choose a database first</option></select>
+    </div>
+    <button type="button" id="btn-refresh" title="Read the graphs of this schema, and the open graph, again from Snowflake">Refresh</button>
+  </div>
+  <div id="busy" class="busy" role="status" hidden>Working...</div>
+</header>
+
+<main class="layout" id="main">
+  <aside class="pane pane-left" id="left" aria-labelledby="h-graphs">
+    <div class="pane-head">
+      <h2 id="h-graphs">Graphs</h2>
+      <span id="graphs-where" class="muted"></span>
+    </div>
+    <div class="btn-row">
+      <button type="button" id="btn-new" title="Start a graph from a skeleton: a root with a schedule and one child. It is not installed until you apply it.">New graph</button>
+      <button type="button" id="btn-import" title="Read a graph from a .json file (a file made by Export)">Import file</button>
+      <input type="file" id="file-import" accept=".json,application/json" hidden tabindex="-1" aria-label="Graph file to import">
+    </div>
+    <div id="graph-list" class="graph-list"></div>
+  </aside>
+
+  <section class="pane pane-center" id="center" aria-label="The graph">
+    <div id="graph-bar" class="graph-bar"></div>
+    <div id="notices" class="notices"></div>
+    <div class="canvas-wrap" id="canvas-wrap">
+      <svg id="canvas" class="canvas" role="group" aria-label="Graph canvas. Tab moves between tasks; Enter selects one."
+           xmlns="http://www.w3.org/2000/svg" tabindex="-1"></svg>
+      <div class="canvas-tools" role="toolbar" aria-label="Canvas tools">
+        <button type="button" id="btn-add" title="Add a task after the selected task">Add task</button>
+        <button type="button" id="btn-delete" title="Delete the selected task (Del)">Delete task</button>
+        <span class="tool-sep" aria-hidden="true"></span>
+        <button type="button" id="btn-zoom-out" aria-label="Zoom out" title="Zoom out">&minus;</button>
+        <span id="zoom-level" class="zoom-level" aria-live="off">100%</span>
+        <button type="button" id="btn-zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" id="btn-fit" title="Fit the whole graph in view">Fit</button>
+        <button type="button" id="btn-100" title="Show at 100%">100%</button>
+      </div>
+      <div id="canvas-empty" class="canvas-empty"></div>
+      <div id="canvas-legend" class="canvas-legend"></div>
+    </div>
+
+    <div class="bottom" id="bottom">
+      <div class="tablist" role="tablist" aria-label="Problems, plan, SQL and runs">
+        <button type="button" role="tab" id="tab-problems" aria-controls="panel-problems" aria-selected="true" data-tab="problems">Problems <span id="problem-count" class="count"></span></button>
+        <button type="button" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" tabindex="-1" data-tab="plan">Plan</button>
+        <button type="button" role="tab" id="tab-sql" aria-controls="panel-sql" aria-selected="false" tabindex="-1" data-tab="sql">SQL</button>
+        <button type="button" role="tab" id="tab-runs" aria-controls="panel-runs" aria-selected="false" tabindex="-1" data-tab="runs">Runs</button>
+        <span class="tab-spacer"></span>
+        <button type="button" id="btn-panel-size" class="small" aria-label="Make the panel taller" aria-pressed="false" title="Make this panel taller or shorter">Taller</button>
+        <button type="button" id="btn-panel-hide" class="small" aria-label="Hide the panel" aria-pressed="false" title="Hide the panel to give the graph the room">Hide</button>
+      </div>
+      <div class="tabpanel" role="tabpanel" id="panel-problems" aria-labelledby="tab-problems" tabindex="0"></div>
+      <div class="tabpanel" role="tabpanel" id="panel-plan" aria-labelledby="tab-plan" tabindex="0" hidden></div>
+      <div class="tabpanel" role="tabpanel" id="panel-sql" aria-labelledby="tab-sql" tabindex="0" hidden></div>
+      <div class="tabpanel" role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" hidden></div>
+    </div>
+  </section>
+
+  <aside class="pane pane-right" id="right" aria-labelledby="h-inspector">
+    <div class="pane-head">
+      <h2 id="h-inspector">Task</h2>
+    </div>
+    <div id="inspector" class="inspector"></div>
+  </aside>
+</main>
+
+<div id="toasts" class="toasts" aria-live="polite" aria-relevant="additions"></div>
+
+<dialog id="dlg-confirm" class="dialog" aria-labelledby="dlg-confirm-title">
+  <h2 id="dlg-confirm-title"></h2>
+  <div id="dlg-confirm-body" class="dialog-body"></div>
+  <div class="dialog-buttons">
+    <button type="button" id="dlg-confirm-cancel">Cancel</button>
+    <button type="button" id="dlg-confirm-ok" class="primary">OK</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-new" class="dialog" aria-labelledby="dlg-new-title">
+  <h2 id="dlg-new-title">New graph</h2>
+  <div class="dialog-body">
+    <p id="dlg-new-where" class="muted"></p>
+    <div class="field">
+      <label for="new-root">Name of the root task</label>
+      <input type="text" id="new-root" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="new-child">Name of the first child task</label>
+      <input type="text" id="new-child" autocomplete="off" spellcheck="false">
+    </div>
+    <p id="dlg-new-error" class="field-error" role="alert"></p>
+  </div>
+  <div class="dialog-buttons">
+    <button type="button" id="dlg-new-cancel">Cancel</button>
+    <button type="button" id="dlg-new-ok" class="primary">Create skeleton</button>
+  </div>
+</dialog>
+
+<script src="layout.js"></script>
+<script src="ui-kit.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

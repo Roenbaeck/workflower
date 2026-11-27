@@ -1,0 +1,8 @@
+#!/bin/sh
+# A canned `snow` for the shell tests: it ignores the request and prints the answer that the test put in CANNED_ANSWER_B64 in the form that
+# the Snowflake CLI prints a one-row result (--format JSON). CANNED_FAIL=1 makes it fail as the CLI does when Snowflake refuses.
+if [ -n "${CANNED_FAIL:-}" ]; then
+    echo 'Snowflake error: no good' >&2
+    exit 1
+fi
+printf '[\n  {\n    "WF": "%s"\n  }\n]\n' "$CANNED_ANSWER_B64"

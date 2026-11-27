@@ -1,2 +1,5 @@
-# The checked-in model is generated verbatim, including the generator's whitespace.
-metadata/Install_2_MetadataModel.sql text eol=lf -whitespace
+# Shell scripts must keep Unix line endings on every checkout (a CR in a shebang line breaks them).
+unix/workflower text eol=lf
+unix/tests/test-shell.sh text eol=lf
+unix/tests/fake-snow/snow text eol=lf
+unix/tests/fake-snow/snow-canned text eol=lf

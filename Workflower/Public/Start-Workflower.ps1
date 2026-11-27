@@ -135,13 +135,13 @@ function Invoke-WfRoute {
         }
         '/api/databases' {
             $rows = @(Invoke-WfSql $Session 'SHOW DATABASES')
-            return [ordered]@{ databases = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Sort-Object) }
+            return [ordered]@{ databases = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Sort-WfOrdinal) }
         }
         '/api/schemas' {
             $d = & $q 'database'
             if (-not $d) { throw 'Say which database.' }
             $rows = @(Invoke-WfSql $Session ('SHOW SCHEMAS IN DATABASE ' + (ConvertTo-WfIdentifier $d)))
-            return [ordered]@{ schemas = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Where-Object { $_ -ne 'INFORMATION_SCHEMA' } | Sort-Object) }
+            return [ordered]@{ schemas = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Where-Object { $_ -ne 'INFORMATION_SCHEMA' } | Sort-WfOrdinal) }
         }
         '/api/graphs' {
             $d = & $q 'database'; $s = & $q 'schema'
@@ -185,7 +185,7 @@ function Invoke-WfRoute {
         }
         '/api/import' {
             $text = [string](Get-WfValue $Body 'text')
-            $doc = ConvertFrom-WfJson $text
+            try { $doc = ConvertFrom-WfJson $text } catch { throw "The file is not valid JSON." }
             if (-not ($doc -is [System.Collections.IDictionary]) -or -not (Test-WfHas $doc 'tasks')) { throw 'Not a task graph file: it has no "tasks".' }
             $g = ConvertTo-WfGraph $doc
             return [ordered]@{ graph = (ConvertTo-WfGraphView $g); problems = (ConvertTo-WfProblemList $g) }

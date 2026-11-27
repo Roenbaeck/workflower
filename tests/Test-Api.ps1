@@ -63,6 +63,7 @@ try {
     $imported = Post-Api '/api/import' @{ text = $exported.text }
     Assert-Equal @($imported.graph.tasks).Count 7 'and its text imports again'
     Assert-Equal $imported.graph.root 'NIGHTLY_ROOT' 'with the same root'
+    Assert-Equal (Get-Status { Post-Api '/api/import' @{ text = 'this is not json' } }) 400 'a file that is not JSON is refused'
     $runs = (Get-Api '/api/runs?database=SALES&schema=LOAD&root=NIGHTLY_ROOT&hours=168').runs
     Assert-True (@($runs).Count -ge 2) 'runs are listed'
     Assert-True (@($runs | Where-Object { $_.state -eq 'FAILED' }).Count -ge 1) 'one of them failed'
