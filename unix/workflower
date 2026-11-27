@@ -14,12 +14,13 @@
 #   workflower resume|suspend|run|retry   -c conn -d DB -s SCHEMA -r ROOT
 #   workflower runs     -c conn -d DB -s SCHEMA -r ROOT [--hours 24] [--limit 20]
 #   workflower view     -c conn -d DB [-s SCHEMA] [-o DIR] [--hours 24] [--no-open]
+#   workflower ui       -c conn [--port 8765] [--no-open]
 #
 # Run `workflower help` for the options.
 
 set -eu
 
-VERSION=1.0.0
+VERSION=0.1.0
 
 here=$0
 while [ -h "$here" ]; do
@@ -54,6 +55,7 @@ Commands
   run | retry          run an installed graph now, or continue its last run from the tasks that failed
   runs                 the runs of a graph, newest first, with the errors of failed tasks
   view                 a read-only picture of the graphs of a schema and their runs: a folder with a page to open in a browser
+  ui                   the interactive page (the same as on Windows): needs Python 3.7 or later; opens in the browser
   help | version
 
 Connection
@@ -75,7 +77,8 @@ Other
   --parameters             graphs: also read the parameters set on each task (slower)
   --hours N, --limit N     runs: how far back (default 24) and how many (default 20)
   -y, --yes                apply: do not ask
-  --no-open                view: make the folder but do not open it in a browser
+  --no-open                view and ui: do not open a browser
+  --port N                 ui: the port on 127.0.0.1 (default 8765)
   --json                   print the machine readable answer as well
 
 Names are exact: write them as Snowflake stores them (upper case unless the task was made with a quoted name).
@@ -290,7 +293,7 @@ shift
 case $COMMAND in
     help|-h|--help) usage; exit 0 ;;
     version|--version) printf '%s\n' "workflower $VERSION"; exit 0 ;;
-    graphs|list|export|check|sql|plan|apply|resume|suspend|run|retry|runs|view) ;;
+    graphs|list|export|check|sql|plan|apply|resume|suspend|run|retry|runs|view|ui) ;;
     *) die "unknown command '$COMMAND' (see workflower help)" ;;
 esac
 
@@ -307,6 +310,7 @@ O_HOURS=24
 O_LIMIT=20
 O_YES=0
 O_NOOPEN=0
+O_PORT=8765
 JSON_FILE=
 WANT_JSON=0
 FILES=
@@ -329,6 +333,7 @@ while [ $# -gt 0 ]; do
         --limit) [ $# -ge 2 ] || die "$1 needs a value"; O_LIMIT=$2; shift 2 ;;
         -y|--yes) O_YES=1; shift ;;
         --no-open) O_NOOPEN=1; shift ;;
+        --port) [ $# -ge 2 ] || die "$1 needs a value"; O_PORT=$2; shift 2 ;;
         --json) WANT_JSON=1; shift ;;
         -h|--help) usage; exit 0 ;;
         --) shift; break ;;
@@ -422,6 +427,20 @@ case $COMMAND in
         call_engine operate "{$(graph_args),\"action\":\"$COMMAND\"}"
         rc=0; show_answer "" 0 || rc=$?
         exit "$rc"
+        ;;
+    ui)
+        PYTHON=${WORKFLOWER_PYTHON:-python3}
+        command -v "$PYTHON" >/dev/null 2>&1 || die "the interactive page needs Python 3.7 or later ($PYTHON was not found). Install it (macOS: xcode-select --install or brew install python; Linux: your package manager), or use the other commands, and 'view' for a read-only page"
+        case $O_PORT in ''|*[!0-9]*) die "--port is a number" ;; esac
+        set -- "$HERE/server.py" --port "$O_PORT"
+        [ -n "$CONNECTION" ] && set -- "$@" -c "$CONNECTION"
+        [ -n "$ROLE" ] && set -- "$@" --role "$ROLE"
+        [ -n "$SESSION_WAREHOUSE" ] && set -- "$@" --session-warehouse "$SESSION_WAREHOUSE"
+        [ "$O_NOOPEN" = 1 ] && set -- "$@" --no-browser
+        # the server takes over: the temporary folder of this script is not needed any more
+        rm -rf "$TMP"
+        trap - EXIT INT TERM
+        exec "$PYTHON" "$@"
         ;;
     view)
         need "-d/--database" "$O_DATABASE"

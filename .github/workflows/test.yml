@@ -30,3 +30,8 @@ jobs:
         run: sh -n unix/workflower
       - name: Shell tests (a canned snow; no Snowflake)
         run: sh unix/tests/test-shell.sh
+      - name: Interactive server (Python; a Node stand-in for snow runs the real engine on fixtures)
+        run: |
+          node --version
+          python3 --version
+          python3 unix/tests/test_server.py

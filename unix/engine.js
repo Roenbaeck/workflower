@@ -1235,14 +1235,30 @@ function opCheck(args) {
   return reply.text(problems.length === 0 ? 'no problems' : lines.join('\n')).json({ problems: problems });
 }
 
-function opSql(args) { return new Reply().text(graphScript(readInput(args))); }
+function opSql(args) {
+  var script = graphScript(readInput(args));
+  return new Reply().text(script).json({ sql: script });
+}
+
+// A file as the graph of the web interface plus its problems: what an editor needs to show a graph file before anything is installed.
+function opImport(args) {
+  var g = readInput(args), problems = checkGraph(g), reply = new Reply();
+  reply.text('graph ' + g.database + '.' + g.schema + (g.root === null ? '' : '.' + g.root) + ': ' + g.tasks.length + ' tasks, ' + problems.length + ' problems');
+  return reply.json({ graph: graphView(g), problems: problems });
+}
+
+// A plan in the shape of the web interface; executed is the number of steps that were run.
+function planView(plan, executed) {
+  return { database: plan.database, schema: plan.schema, root: plan.root, exists: plan.exists, isEmpty: plan.isEmpty, added: plan.added,
+    removed: plan.removed, changed: plan.changed, executed: executed, steps: plan.steps };
+}
 
 // A plan, or the errors that keep it from being made (the graph is checked first, as Publish-TaskGraph does).
 function opPlan(args, apply) {
-  var g = readInput(args), errors = errorsOf(checkGraph(g)), plan, reply = new Reply(), done;
+  var g = readInput(args), problems = checkGraph(g), errors = errorsOf(problems), plan, reply = new Reply(), done = 0;
   if (errors.length > 0) {
     reply = failure('The graph is not valid:\n' + errors.map(function (p) { return '  ' + p.message; }).join('\n'));
-    return reply;
+    return reply.json({ problems: problems });
   }
   plan = makePlan(g, readInstalled(g));
   reply.steps = plan.steps.length;
@@ -1251,13 +1267,14 @@ function opPlan(args, apply) {
     done = applyPlan(plan, reply);
     if (reply.status === 'ok') { reply.text('done: ' + done + (done === 1 ? ' step' : ' steps')); }
   }
-  return reply.json(plan);
+  return reply.json({ plan: planView(plan, done) });
 }
 
 function dispatch(op, args) {
   if (op === 'graphs') { return opGraphs(args); }
   if (op === 'export') { return opExport(args); }
   if (op === 'check') { return opCheck(args); }
+  if (op === 'import') { return opImport(args); }
   if (op === 'sql') { return opSql(args); }
   if (op === 'plan') { return opPlan(args, false); }
   if (op === 'apply') { return opPlan(args, true); }
