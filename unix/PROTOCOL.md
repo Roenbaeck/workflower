@@ -55,6 +55,7 @@ base64 text). Names that are not given are not sent. `database`, `schema`, `root
 | `plan` | the input | reads the installed graph, TEXT: the steps in order (phase, reason and the SQL), or `nothing to change`; JSON: the plan; `EXIT 1` if the graph has errors (no plan is made) |
 | `apply` | the input | plan, then runs the steps one by one (as `Publish-TaskGraph`); TEXT: what was done; on a failed step `STATUS error` and the message that says which steps were done |
 | `operate` | `database`, `schema`, `root`, `action` = `resume`, `suspend`, `run` or `retry` | as `Resume-TaskGraph`, `Suspend-TaskGraph`, `Start-TaskGraph [-Retry]`; TEXT: what was done |
+| `view` | `database`, `schema` (optional), `root` (optional), `hours` (default 24) | reads graphs with their parameters and, for each, its runs; JSON only (plus one TEXT line "N graphs"): `{"session":{"backend":"Cli","account":"","warehouse":"","role":""},"graphs":[Graph],"runs":{"<root>":[Run]}}` with Graph and Run in exactly the shapes of the web interface API (see README; Run is `{runId,state,scheduled,started,completed,seconds,tasks:[{task,state,started,completed,error,errorCode,queryId,attempt}]}`, newest first). The shell script wraps it as `data.js` for the static viewer |
 | `runs` | `database`, `schema`, `root`, `hours` (default 24), `limit` (default 20) | as `Get-TaskGraphRun`; TEXT: a table of runs and, for the failed tasks, the error; JSON: the runs |
 
 The **input** of `check`, `sql`, `plan` and `apply` is a graph file:

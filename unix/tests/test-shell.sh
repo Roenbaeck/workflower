@@ -126,6 +126,19 @@ check 'apply -y runs without asking' 0 "$code"
 run apply "$work/g.json" </dev/null
 check 'apply without an answer does not apply' 'yes' "$(grep -q 'not applied' "$work/out" && echo yes || echo no)"
 
+echo 'View'
+canned 'STATUS ok' "TEXT $(enc '1 graphs')" "JSON $(enc '{"session":{},"graphs":[],"runs":{}}')"
+run view -d DB -o "$work/viewer" --no-open
+check 'view works' 0 "$code"
+check 'the data is wrapped for the page' 'window.WORKFLOWER_DATA = {"session":{},"graphs":[],"runs":{}};' "$(cat "$work/viewer/data.js")"
+check 'the page is copied' 'yes' "$([ -f "$work/viewer/index.html" ] && [ -f "$work/viewer/app.js" ] && echo yes || echo no)"
+check 'but not the self-test' 'no' "$([ -e "$work/viewer/selftest.js" ] && echo yes || echo no)"
+canned 'STATUS ok' "TEXT $(enc 'no json here')"
+run view -d DB -o "$work/viewer2" --no-open
+check 'view without data from the engine fails' 2 "$code"
+run view
+check 'view needs a database' 64 "$code"
+
 echo 'snow fails'
 export CANNED_FAIL=1
 run graphs -d DB

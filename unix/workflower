@@ -13,6 +13,7 @@
 #   workflower apply    -c conn FILE... [-d DB] [-s SCHEMA] [--warehouse WH] [-y]
 #   workflower resume|suspend|run|retry   -c conn -d DB -s SCHEMA -r ROOT
 #   workflower runs     -c conn -d DB -s SCHEMA -r ROOT [--hours 24] [--limit 20]
+#   workflower view     -c conn -d DB [-s SCHEMA] [-o DIR] [--hours 24] [--no-open]
 #
 # Run `workflower help` for the options.
 
@@ -52,6 +53,7 @@ Commands
   resume | suspend     start or stop an installed graph (children before the root, or the root first)
   run | retry          run an installed graph now, or continue its last run from the tasks that failed
   runs                 the runs of a graph, newest first, with the errors of failed tasks
+  view                 a read-only picture of the graphs of a schema and their runs: a folder with a page to open in a browser
   help | version
 
 Connection
@@ -73,6 +75,7 @@ Other
   --parameters             graphs: also read the parameters set on each task (slower)
   --hours N, --limit N     runs: how far back (default 24) and how many (default 20)
   -y, --yes                apply: do not ask
+  --no-open                view: make the folder but do not open it in a browser
   --json                   print the machine readable answer as well
 
 Names are exact: write them as Snowflake stores them (upper case unless the task was made with a quoted name).
@@ -169,6 +172,7 @@ show_answer() {
 ') ;; *) if [ "$status" = error ]; then printf '\n' >&2; else printf '\n'; fi ;; esac
                 ;;
             JSON)
+                if [ -n "$JSON_FILE" ]; then printf '%s' "$rest" | b64dec >"$JSON_FILE"; fi
                 if [ "$WANT_JSON" = 1 ]; then printf '%s' "$rest" | b64dec; printf '\n'; fi
                 ;;
             FILE) printf '%s\n' "$rest" >>"$TMP/files" ;;
@@ -286,7 +290,7 @@ shift
 case $COMMAND in
     help|-h|--help) usage; exit 0 ;;
     version|--version) printf '%s\n' "workflower $VERSION"; exit 0 ;;
-    graphs|list|export|check|sql|plan|apply|resume|suspend|run|retry|runs) ;;
+    graphs|list|export|check|sql|plan|apply|resume|suspend|run|retry|runs|view) ;;
     *) die "unknown command '$COMMAND' (see workflower help)" ;;
 esac
 
@@ -302,6 +306,8 @@ O_PARAMETERS=false
 O_HOURS=24
 O_LIMIT=20
 O_YES=0
+O_NOOPEN=0
+JSON_FILE=
 WANT_JSON=0
 FILES=
 
@@ -322,6 +328,7 @@ while [ $# -gt 0 ]; do
         --hours) [ $# -ge 2 ] || die "$1 needs a value"; O_HOURS=$2; shift 2 ;;
         --limit) [ $# -ge 2 ] || die "$1 needs a value"; O_LIMIT=$2; shift 2 ;;
         -y|--yes) O_YES=1; shift ;;
+        --no-open) O_NOOPEN=1; shift ;;
         --json) WANT_JSON=1; shift ;;
         -h|--help) usage; exit 0 ;;
         --) shift; break ;;
@@ -415,6 +422,30 @@ case $COMMAND in
         call_engine operate "{$(graph_args),\"action\":\"$COMMAND\"}"
         rc=0; show_answer "" 0 || rc=$?
         exit "$rc"
+        ;;
+    view)
+        need "-d/--database" "$O_DATABASE"
+        UI=${WORKFLOWER_UI:-$HERE/../Workflower/ui}
+        [ -f "$UI/index.html" ] || die "the interface files are not in $UI (set WORKFLOWER_UI)"
+        if [ -n "$O_OUTPUT" ]; then viewdir=$O_OUTPUT; else viewdir=$(mktemp -d "${TMPDIR:-/tmp}/workflower-view.XXXXXX"); fi
+        JSON_FILE=$TMP/view.json
+        call_engine view "{$(graph_args),\"hours\":$O_HOURS}"
+        rc=0; show_answer "" 0 || rc=$?
+        [ "$rc" -eq 0 ] || exit "$rc"
+        [ -s "$JSON_FILE" ] || { printf '%s\n' 'workflower: the engine gave no data for the viewer' >&2; exit 2; }
+        mkdir -p "$viewdir"
+        for name in index.html app.css app.js layout.js ui-kit.js Snowflower.svg site.webmanifest favicon.ico favicon-16x16.png favicon-32x32.png apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png; do
+            [ -f "$UI/$name" ] && cp "$UI/$name" "$viewdir/$name"
+        done
+        { printf 'window.WORKFLOWER_DATA = '; cat "$JSON_FILE"; printf ';\n'; } >"$viewdir/data.js"
+        printf '%s\n' "the viewer is in $viewdir (open index.html in a browser)"
+        if [ "$O_NOOPEN" != 1 ]; then
+            case $(uname -s 2>/dev/null) in
+                Darwin) open "$viewdir/index.html" >/dev/null 2>&1 || true ;;
+                *) if command -v xdg-open >/dev/null 2>&1; then xdg-open "$viewdir/index.html" >/dev/null 2>&1 || true; fi ;;
+            esac
+        fi
+        exit 0
         ;;
     runs)
         need "-d/--database" "$O_DATABASE"; need "-s/--schema" "$O_SCHEMA"; need "-r/--root" "$O_ROOT"
