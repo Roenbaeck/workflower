@@ -1,0 +1,7 @@
+#!/bin/sh
+# A stand-in for the Snowflake CLI, for testing workflower on a machine that has none: it takes the arguments of
+# `snow sql -c <connection> --format JSON -f <file>` and runs the file's statement through the SQL REST API with a token
+# (PowerShell and the Workflower module do that), then prints the rows as a JSON array like the CLI does.
+# Set FAKE_SNOW_ACCOUNT and FAKE_SNOW_TOKENFILE; FAKE_SNOW_WAREHOUSE and FAKE_SNOW_ROLE are optional.
+here=$(cd "$(dirname "$0")" && pwd)
+exec powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/snow-shim.ps1" 2>/dev/null || echo "$here/snow-shim.ps1")" "$@"
