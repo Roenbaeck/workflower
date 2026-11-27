@@ -157,7 +157,7 @@ try {
         foreach ($k in 'comment', 'config', 'allowOverlappingExecution') { [void]$r2.Remove($k) }
         $r2['schedule'] = '60 MINUTE'; $r2['parameters'] = [ordered]@{ SUSPEND_TASK_AFTER_NUM_FAILURES = '3' }
         $p = Plan-Of $d2
-        Assert-True (@(@($p.Json.steps) | Where-Object { $_.sql -match ' UNSET .*COMMENT' }).Count -eq 1) 'what goes is unset'
+        Assert-True (@(@($p.Json.plan.steps) | Where-Object { $_.sql -match ' UNSET .*COMMENT' }).Count -eq 1) 'what goes is unset'
         Publish $d2 'unsetting them again' | Out-Null
         Settle $d2 'after unsetting them again'
         $r3 = @((Get-Graph 'ONE' 'ROOT').tasks | Where-Object { $_.name -eq 'ROOT' })[0]
@@ -342,6 +342,34 @@ try {
         Write-Host ('        (retry: ' + $rt.Status + ' ' + ($rt.Texts -join ' ').Substring(0, [Math]::Min(120, ($rt.Texts -join ' ').Length)) + ')')
         $missing = Eng 'operate' @{ database = $db; schema = 'ONE'; root = 'NO_SUCH'; action = 'resume' }
         Assert-True ($missing.Status -eq 'error' -and $missing.Texts[0] -match 'There is no graph') 'a graph that is not there is an error'
+    }
+
+    Write-Host 'The shapes that the server relies on, and the call of the shell script'
+    Step 'shapes' {
+        $d = Get-Installed 'ONE' 'ROOT'
+        $i = Eng 'import' (ConvertTo-Request $d)
+        Assert-Equal $i.Status 'ok' 'import is ok'
+        Assert-Equal @($i.Json.psobject.Properties | ForEach-Object { $_.Name }) @('graph', 'problems') 'import: graph and problems'
+        Assert-Equal $i.Json.graph.root 'ROOT' 'import: the root'
+        Assert-Equal @($i.Json.graph.tasks[0].psobject.Properties | ForEach-Object { $_.Name }) @('name', 'definition', 'after', 'finalize', 'schedule', 'warehouse', 'condition', 'allowOverlappingExecution', 'errorIntegration', 'comment', 'config', 'parameters', 'state') 'import: a task has all its fields and no info'
+        $bad = Eng 'import' @{ doc = (ConvertTo-B64 '{"tasks":[{"name":"X","definiton":"oops"}]}') }
+        Assert-True ($bad.Status -eq 'error' -and $bad.Texts[0] -match "unknown field 'definiton'") 'import: an unknown field is STATUS error'
+        $p = Plan-Of $d
+        Assert-Equal @($p.Json.plan.psobject.Properties | ForEach-Object { $_.Name }) @('database', 'schema', 'root', 'exists', 'isEmpty', 'added', 'removed', 'changed', 'executed', 'steps') 'plan: the shape of the web interface'
+        Assert-Equal $p.Json.plan.isEmpty $true 'plan: isEmpty is a boolean'
+        $sq = Eng 'sql' (ConvertTo-Request $d)
+        Assert-Equal $sq.Json.sql $sq.Texts[0] 'sql: the JSON holds the script'
+        (Get-DocTask $d 'LOAD_A')['definition'] = 'SELECT 77'
+        $ap = Eng 'apply' (ConvertTo-Request $d)
+        Assert-True ($ap.Status -eq 'ok' -and $ap.Json.plan.executed -eq @($ap.Json.plan.steps).Count -and $ap.Json.plan.executed -ge 1) 'apply: executed is the number of steps run'
+        # the call as unix/workflower writes it: the arguments are decoded by Snowflake
+        $dd = [string][char]36 + [string][char]36
+        $args64 = ConvertTo-B64 (ConvertTo-Js @{ database = $db; schema = 'ONE'; root = 'ROOT' })
+        $statement = 'WITH wf AS PROCEDURE (OP VARCHAR, ARGS VARCHAR) RETURNS VARCHAR LANGUAGE JAVASCRIPT AS' + "`n" + $dd + "`n" + $global:WfEngineText + "`n" + $dd + "`n" +
+            "CALL wf('graphs', BASE64_DECODE_STRING('" + $args64 + "'))"
+        $rows = @(Invoke-WfSql $s $statement)
+        $g = Read-Answer ([string]@($rows[0].psobject.Properties)[0].Value)
+        Assert-True ($g.Status -eq 'ok' -and @($g.Json.graphs).Count -eq 1) 'CALL wf(op, BASE64_DECODE_STRING(...)) works in Snowflake'
     }
 
     Write-Host 'Failures'

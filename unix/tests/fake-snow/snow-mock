@@ -1,0 +1,5 @@
+#!/bin/sh
+# A stand-in for the Snowflake CLI that needs no account: it runs the real engine.js on Node against fixtures (see ../mock-snow.js).
+# Set MOCK_SNOW_STATE to a file (it is created) where the state is kept between calls.
+here=$(cd "$(dirname "$0")" && pwd)
+exec node "$here/../mock-snow.js" "$@"

@@ -96,7 +96,7 @@ function Invoke-WfApi {
         Authorization = "Bearer $($Session.Token)"
         'X-Snowflake-Authorization-Token-Type' = $Session.TokenType
         Accept = 'application/json'
-        'User-Agent' = 'Workflower/1.0'
+        'User-Agent' = 'Workflower/0.1.0'
     }
     $json = ConvertTo-Json $body -Depth 5 -Compress
     try {

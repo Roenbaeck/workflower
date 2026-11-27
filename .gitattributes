@@ -3,3 +3,5 @@ unix/workflower text eol=lf
 unix/tests/test-shell.sh text eol=lf
 unix/tests/fake-snow/snow text eol=lf
 unix/tests/fake-snow/snow-canned text eol=lf
+unix/tests/fake-snow/snow-mock text eol=lf
+unix/server.py text eol=lf

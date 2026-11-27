@@ -297,7 +297,7 @@ function New-DocTask {
 }
 function New-Doc { param($Tasks, [string] $Db = 'DB', [string] $Sc = 'SC') [ordered]@{ format = 'workflower-graph'; version = 1; database = $Db; schema = $Sc; tasks = @($Tasks) } }
 function Get-Codes { param($Tasks) $a = Invoke-Engine 'check' (ConvertTo-Request (New-Doc $Tasks)); @($a.Json.problems | ForEach-Object { $_.code }) }
-function Get-Phases { param($Answer) @(@($Answer.Json.steps) | ForEach-Object { $_.phase }) }
+function Get-Phases { param($Answer) @(@($Answer.Json.plan.steps) | ForEach-Object { $_.phase }) }
 
 if ($MyInvocation.InvocationName -eq '.') { return }
 
@@ -515,7 +515,7 @@ Assert-Equal @($d1 | Select-Object -Unique).Count $d1.Count 'and no two tasks wr
 $over = Invoke-Engine 'plan' @{ doc = (ConvertTo-B64 $text); database = 'PROD'; schema = 'LIVE'; warehouse = 'BIG' } (New-Mock)
 Assert-True ($over.Texts[0].Contains('CREATE TASK "PROD"."LIVE"."LOAD_ROOT"')) '-Database and -Schema replace those of the file'
 Assert-True ($over.Texts[0].Contains('WAREHOUSE = "BIG"') -and -not $over.Texts[0].Contains('WAREHOUSE = "WH"')) '-Warehouse replaces the warehouse of a task that has one'
-Assert-Equal $over.Json.database 'PROD' 'the plan names the database'
+Assert-Equal $over.Json.plan.database 'PROD' 'the plan names the database'
 $serverless = (ConvertFrom-Js $text); [void](Get-DocTask $serverless 'LOAD_B').Remove('warehouse')
 $over = Invoke-Engine 'sql' @{ doc = (ConvertTo-B64 (ConvertTo-Js $serverless)); warehouse = 'BIG' }
 Assert-True ($over.Texts[0] -notmatch '(?s)"LOAD_B"\n  WAREHOUSE') 'and none is given to a task that has none'
@@ -556,61 +556,61 @@ $p = Get-Plan (Copy-Doc $base.Doc)
 Assert-Equal $p.Steps 0 'a graph that is as installed needs nothing'
 Assert-Equal $p.Status 'ok' 'and the answer is ok'
 Assert-True ($p.Texts[0] -match 'nothing to change') 'and says so'
-Assert-True ($p.Json.isEmpty) 'the JSON says it is empty'
+Assert-True ($p.Json.plan.isEmpty) 'the JSON says it is empty'
 $d = Copy-Doc $base.Doc; $d['database'] = 'DB'
 $p = Get-Plan $d (New-Mock)
 Assert-Equal (Get-Phases $p) @('create', 'create', 'create', 'create', 'create', 'resume', 'resume', 'resume', 'resume', 'resume') 'a graph that is not installed is made, and started when its tasks say started'
-Assert-Equal $p.Json.steps[9].task 'LOAD_ROOT' 'the root is resumed last'
-Assert-Equal $p.Json.exists $false 'and the plan says it is new'
+Assert-Equal $p.Json.plan.steps[9].task 'LOAD_ROOT' 'the root is resumed last'
+Assert-Equal $p.Json.plan.exists $false 'and the plan says it is new'
 Assert-Equal $p.Steps 10 'STEPS is the number of steps'
 foreach ($t in $d['tasks']) { [void]$t.Remove('state') }
 $p = Get-Plan $d (New-Mock)
 Assert-Equal (Get-Phases $p) @('create', 'create', 'create', 'create', 'create') 'a graph with no state is made suspended'
-Assert-True ($p.Json.steps[4].sql -match 'FINALIZE = "DB"."SC"."LOAD_ROOT"') 'with the finalizer made last'
+Assert-True ($p.Json.plan.steps[4].sql -match 'FINALIZE = "DB"."SC"."LOAD_ROOT"') 'with the finalizer made last'
 Assert-True ($p.Texts[0].StartsWith("Graph DB.SC.LOAD_ROOT: 5 steps`n  1. create   LOAD_ROOT   Task 'LOAD_ROOT' is new.`n       CREATE TASK `"DB`".`"SC`".`"LOAD_ROOT`"`n")) 'the text of a plan reads like the protocol says'
 
 $d = Copy-Doc $base.Doc; (Get-DocTask $d 'LOAD_A')['definition'] = 'SELECT 2'
 $p = Get-Plan $d
 Assert-Equal (Get-Phases $p) @('suspend', 'alter', 'resume') 'a changed body: suspend the root, alter, resume'
-Assert-Equal $p.Json.steps[1].sql "ALTER TASK `"DB`".`"SC`".`"LOAD_A`" MODIFY AS`nSELECT 2" 'the alter is MODIFY AS'
-Assert-Equal $p.Json.steps[2].task 'LOAD_ROOT' 'only the root had to be resumed'
-Assert-Equal @($p.Json.changed) @('LOAD_A') 'the plan names the changed task'
-Assert-Equal $p.Json.steps[0].sql 'ALTER TASK "DB"."SC"."LOAD_ROOT" SUSPEND' 'the root is suspended first'
-Assert-Equal $p.Json.steps[1].reason "Task 'LOAD_A': the definition is changed." 'the reason'
+Assert-Equal $p.Json.plan.steps[1].sql "ALTER TASK `"DB`".`"SC`".`"LOAD_A`" MODIFY AS`nSELECT 2" 'the alter is MODIFY AS'
+Assert-Equal $p.Json.plan.steps[2].task 'LOAD_ROOT' 'only the root had to be resumed'
+Assert-Equal @($p.Json.plan.changed) @('LOAD_A') 'the plan names the changed task'
+Assert-Equal $p.Json.plan.steps[0].sql 'ALTER TASK "DB"."SC"."LOAD_ROOT" SUSPEND' 'the root is suspended first'
+Assert-Equal $p.Json.plan.steps[1].reason "Task 'LOAD_A': the definition is changed." 'the reason'
 Assert-True ($p.Texts[0].Contains("  2. alter    LOAD_A   Task 'LOAD_A': the definition is changed.`n       ALTER TASK `"DB`".`"SC`".`"LOAD_A`" MODIFY AS`n       SELECT 2")) 'a body is indented as a whole'
 
 $d = Copy-Doc $base.Doc; $d['tasks'] = @($d['tasks'] | Where-Object { $_['name'] -cne 'LOAD_C' })
 $p = Get-Plan $d
 Assert-Equal (Get-Phases $p) @('suspend', 'drop', 'resume') 'a task that goes is dropped'
-Assert-Equal @($p.Json.removed) @('LOAD_C') 'and named'
-Assert-Equal $p.Json.steps[1].sql 'DROP TASK "DB"."SC"."LOAD_C"' 'with DROP TASK'
+Assert-Equal @($p.Json.plan.removed) @('LOAD_C') 'and named'
+Assert-Equal $p.Json.plan.steps[1].sql 'DROP TASK "DB"."SC"."LOAD_C"' 'with DROP TASK'
 
 $d = Copy-Doc $base.Doc; (Get-DocTask $d 'LOAD_C')['after'] = @('LOAD_A')
 $p = Get-Plan $d
 Assert-Equal (Get-Phases $p) @('suspend', 'unlink', 'resume') 'a dependency that goes is removed'
-Assert-Equal $p.Json.steps[1].sql 'ALTER TASK "DB"."SC"."LOAD_C" REMOVE AFTER "DB"."SC"."LOAD_B"' 'with REMOVE AFTER'
+Assert-Equal $p.Json.plan.steps[1].sql 'ALTER TASK "DB"."SC"."LOAD_C" REMOVE AFTER "DB"."SC"."LOAD_B"' 'with REMOVE AFTER'
 
 $d = Copy-Doc $base.Doc; $d['tasks'] = @($d['tasks']) + @([ordered]@{ name = 'LOAD_D'; definition = 'SELECT 4'; after = @('LOAD_C'); warehouse = 'WH' })
 $p = Get-Plan $d
 Assert-Equal (Get-Phases $p) @('suspend', 'create', 'resume', 'resume') 'a new task is made, and started because the graph is started'
-Assert-Equal $p.Json.steps[2].task 'LOAD_D' 'the new task is resumed before the root'
-Assert-Equal @($p.Json.added) @('LOAD_D') 'and named'
+Assert-Equal $p.Json.plan.steps[2].task 'LOAD_D' 'the new task is resumed before the root'
+Assert-Equal @($p.Json.plan.added) @('LOAD_D') 'and named'
 
 $d = Copy-Doc $base.Doc; (Get-DocTask $d 'LOAD_A')['after'] = @('LOAD_ROOT', 'LOAD_B')
 $p = Get-Plan $d
-Assert-True (@(@($p.Json.steps) | Where-Object { $_.sql -match 'ADD AFTER "DB"."SC"."LOAD_B"' }).Count -eq 1) 'a new dependency is added with ADD AFTER'
+Assert-True (@(@($p.Json.plan.steps) | Where-Object { $_.sql -match 'ADD AFTER "DB"."SC"."LOAD_B"' }).Count -eq 1) 'a new dependency is added with ADD AFTER'
 
 $d = Copy-Doc $base.Doc; foreach ($t in $d['tasks']) { $t['state'] = 'suspended' }
 $p = Get-Plan $d
 Assert-Equal (Get-Phases $p) @('suspend', 'suspend', 'suspend', 'suspend', 'suspend') 'a graph that is to stop is suspended, the root first'
-Assert-Equal $p.Json.steps[0].task 'LOAD_ROOT' 'the root first'
-Assert-Equal $p.Json.steps[0].reason "Task 'LOAD_ROOT' is to be suspended." 'for that reason'
+Assert-Equal $p.Json.plan.steps[0].task 'LOAD_ROOT' 'the root first'
+Assert-Equal $p.Json.plan.steps[0].reason "Task 'LOAD_ROOT' is to be suspended." 'for that reason'
 
 $d = Copy-Doc $base.Doc; $rt = Get-DocTask $d 'LOAD_ROOT'; [void]$rt.Remove('schedule'); $rt['state'] = 'suspended'; $rt['comment'] = 'hi'; $rt['parameters']['USER_TASK_TIMEOUT_MS'] = '1000'
 $p = Get-Plan $d
-Assert-True (@(@($p.Json.steps) | Where-Object { $_.sql -eq 'ALTER TASK "DB"."SC"."LOAD_ROOT" UNSET SCHEDULE' }).Count -eq 1) 'a schedule that goes is unset'
-Assert-True (@(@($p.Json.steps) | Where-Object { $_.sql -match "SET COMMENT = 'hi', USER_TASK_TIMEOUT_MS = 1000$" }).Count -eq 1) 'a comment and a parameter are set together'
-Assert-Equal $p.Json.steps[1].reason "Task 'LOAD_ROOT': schedule, comment, parameter USER_TASK_TIMEOUT_MS is unset." 'the reasons list every property that is changed, as the PowerShell module does'
+Assert-True (@(@($p.Json.plan.steps) | Where-Object { $_.sql -eq 'ALTER TASK "DB"."SC"."LOAD_ROOT" UNSET SCHEDULE' }).Count -eq 1) 'a schedule that goes is unset'
+Assert-True (@(@($p.Json.plan.steps) | Where-Object { $_.sql -match "SET COMMENT = 'hi', USER_TASK_TIMEOUT_MS = 1000$" }).Count -eq 1) 'a comment and a parameter are set together'
+Assert-Equal $p.Json.plan.steps[1].reason "Task 'LOAD_ROOT': schedule, comment, parameter USER_TASK_TIMEOUT_MS is unset." 'the reasons list every property that is changed, as the PowerShell module does'
 
 $d = Copy-Doc $base.Doc; (Get-DocTask $d 'LOAD_A')['definition'] = (([string](Get-DocTask $base.Doc 'LOAD_A')['definition']) -replace "`n", "`r`n") + "`r`n"
 $p = Get-Plan $d
@@ -618,7 +618,7 @@ Assert-Equal $p.Steps 0 'a different line ending or a trailing break is no chang
 
 $d = Copy-Doc $base.Doc; (Get-DocTask $d 'LOAD_B')['warehouse'] = 'OTHER_WH'; (Get-DocTask $d 'LOAD_B')['condition'] = "SYSTEM`$STREAM_HAS_DATA('S')"
 $p = Get-Plan $d
-Assert-Equal @(@($p.Json.steps) | ForEach-Object { $_.sql }) @('ALTER TASK "DB"."SC"."LOAD_ROOT" SUSPEND', 'ALTER TASK "DB"."SC"."LOAD_B" SET WAREHOUSE = "OTHER_WH"', "ALTER TASK `"DB`".`"SC`".`"LOAD_B`" MODIFY WHEN SYSTEM`$STREAM_HAS_DATA('S')", 'ALTER TASK "DB"."SC"."LOAD_ROOT" RESUME') 'a warehouse and a condition are changed'
+Assert-Equal @(@($p.Json.plan.steps) | ForEach-Object { $_.sql }) @('ALTER TASK "DB"."SC"."LOAD_ROOT" SUSPEND', 'ALTER TASK "DB"."SC"."LOAD_B" SET WAREHOUSE = "OTHER_WH"', "ALTER TASK `"DB`".`"SC`".`"LOAD_B`" MODIFY WHEN SYSTEM`$STREAM_HAS_DATA('S')", 'ALTER TASK "DB"."SC"."LOAD_ROOT" RESUME') 'a warehouse and a condition are changed'
 
 $d = Copy-Doc $base.Doc; $d['tasks'] = @($d['tasks'] | Where-Object { $_['name'] -cne 'LOAD_FINAL' })
 $p = Get-Plan $d
@@ -626,7 +626,7 @@ Assert-Equal (Get-Phases $p) @('suspend', 'drop', 'resume') 'a finalizer that go
 $m5 = New-LoadMock; $m5.Rows.RemoveAt(4)
 $p = Get-Plan (Copy-Doc $base.Doc) $m5
 Assert-Equal (Get-Phases $p) @('suspend', 'create', 'resume', 'resume') 'a finalizer that is added is made, and started'
-Assert-True ($p.Json.steps[1].sql -match 'FINALIZE = "DB"."SC"."LOAD_ROOT"') 'with FINALIZE'
+Assert-True ($p.Json.plan.steps[1].sql -match 'FINALIZE = "DB"."SC"."LOAD_ROOT"') 'with FINALIZE'
 
 Write-Host 'Apply'
 $m = New-LoadMock
@@ -661,7 +661,7 @@ $noDb = New-Doc @((T 'R' -Schedule '1 MINUTE')) -Db '' -Sc ''
 $a = Invoke-Engine 'plan' (ConvertTo-Request $noDb) (New-Mock)
 Assert-True ($a.Status -eq 'error' -and $a.Texts[0] -match 'no database and schema') 'a graph that says no database and schema is refused'
 $a = Invoke-Engine 'apply' (ConvertTo-Request $d) (New-LoadMock)
-Assert-Equal @($a.Json.steps).Count 3 'the JSON of apply is the plan'
+Assert-Equal @($a.Json.plan.steps).Count 3 'the JSON of apply is the plan'
 $m = New-LoadMock; foreach ($r in $m.Rows) { $r['state'] = 'suspended' }
 $d2 = Copy-Doc $base.Doc; foreach ($t in $d2['tasks']) { $t['state'] = 'started' }
 $a = Invoke-Engine 'apply' (ConvertTo-Request $d2) $m
@@ -735,6 +735,73 @@ Assert-Equal $a.Status 'error' 'hours must be a number'
 $a = Invoke-Engine 'runs' @{ database = 'DB'; schema = 'SC'; root = 'LOAD_ROOT'; hours = '1) UNION SELECT 1 --' } $m
 Assert-Equal $a.Status 'ok' 'a number with SQL after it is read as the number (parseInt), and only the number reaches the statement'
 Assert-True (@($m.All | Where-Object { $_ -match 'UNION' }).Count -eq 0) 'no SQL of the request reaches Snowflake'
+
+Write-Host 'The JSON shapes that the server relies on'
+$m = New-LoadMock
+$d = Copy-Doc $base.Doc; (Get-DocTask $d 'LOAD_A')['definition'] = 'SELECT 2'
+$a = Invoke-Engine 'plan' (ConvertTo-Request $d) $m
+Assert-Equal @($a.Json.psobject.Properties | ForEach-Object { $_.Name }) @('plan') 'plan: the JSON has plan only'
+Assert-Equal @($a.Json.plan.psobject.Properties | ForEach-Object { $_.Name }) @('database', 'schema', 'root', 'exists', 'isEmpty', 'added', 'removed', 'changed', 'executed', 'steps') 'plan: the shape of ConvertTo-WfPlanView'
+Assert-Equal @($a.Json.plan.steps[0].psobject.Properties | ForEach-Object { $_.Name }) @('phase', 'task', 'sql', 'reason') 'plan: a step has phase, task, sql, reason'
+Assert-Equal $a.Json.plan.executed 0 'plan: nothing is executed'
+Assert-Equal $a.Json.plan.exists $true 'plan: exists is a boolean'
+Assert-Equal $a.Json.plan.isEmpty $false 'plan: isEmpty is a boolean'
+$a = Invoke-Engine 'apply' (ConvertTo-Request $d) $m
+Assert-Equal $a.Json.plan.executed 3 'apply: executed is the number of steps run'
+Assert-Equal @($a.Json.plan.steps).Count 3 'apply: with the steps'
+$m = New-LoadMock; $m.FailOn = '^ALTER TASK "DB"."SC"."LOAD_A" MODIFY AS'
+$a = Invoke-Engine 'apply' (ConvertTo-Request $d) $m
+Assert-Equal $a.Json.plan.executed 1 'a failed apply: executed is the steps that were done'
+Assert-Equal $a.Status 'error' 'and the status is error'
+Assert-True ($a.Texts[$a.Texts.Count - 1] -match 'Steps 1 to 1 were done') 'with the steps done in the text'
+$a = Invoke-Engine 'apply' (ConvertTo-Request (Copy-Doc $base.Doc)) (New-LoadMock)
+Assert-Equal $a.Json.plan.isEmpty $true 'apply of nothing: isEmpty'
+Assert-Equal @($a.Json.plan.steps).Count 0 'with no steps'
+Assert-Equal $a.Json.plan.executed 0 'and executed 0'
+$a = Invoke-Engine 'sql' (ConvertTo-Request (Copy-Doc $base.Doc)) (New-LoadMock)
+Assert-Equal @($a.Json.psobject.Properties | ForEach-Object { $_.Name }) @('sql') 'sql: the JSON has sql only'
+Assert-Equal $a.Json.sql $a.Texts[0] 'sql: the same script as the TEXT'
+$a = Invoke-Engine 'check' (ConvertTo-Request (New-Doc @((T 'R'), (T 'S'))))
+Assert-Equal @($a.Json.problems[0].psobject.Properties | ForEach-Object { $_.Name }) @('severity', 'task', 'code', 'message') 'check: a problem has severity, task, code, message'
+Assert-True ($null -eq $a.Json.problems[0].task) 'check: the task of a graph problem is null'
+$bad = Invoke-Engine 'plan' (ConvertTo-Request (New-Doc @((T 'R'), (T 'S')))) (New-Mock)
+Assert-Equal $bad.Status 'error' 'plan of an invalid graph: STATUS error'
+Assert-True (@($bad.Json.problems | ForEach-Object { $_.code }) -contains 'several-roots') 'with the problems in the JSON'
+
+Write-Host 'Import'
+$d = Copy-Doc $base.Doc; (Get-DocTask $d 'LOAD_B')['parameters'] = [ordered]@{ USER_TASK_TIMEOUT_MS = '1000' }
+$a = Invoke-Engine 'import' (ConvertTo-Request $d) (New-Mock)
+Assert-Equal $a.Status 'ok' 'a document is imported'
+Assert-Equal @($a.Json.psobject.Properties | ForEach-Object { $_.Name }) @('graph', 'problems') 'the JSON has graph and problems'
+$gv = $a.Json.graph
+Assert-Equal @($gv.psobject.Properties | ForEach-Object { $_.Name }) @('database', 'schema', 'root', 'state', 'incomplete', 'tasks') 'the graph has the shape of the web interface'
+Assert-Equal @($gv.tasks[0].psobject.Properties | ForEach-Object { $_.Name }) @('name', 'definition', 'after', 'finalize', 'schedule', 'warehouse', 'condition', 'allowOverlappingExecution', 'errorIntegration', 'comment', 'config', 'parameters', 'state') 'a task has all its fields and no info'
+Assert-Equal $gv.root 'LOAD_ROOT' 'the root is found'
+Assert-Equal $gv.state 'started' 'the state of the graph is the root''s'
+Assert-Equal $gv.incomplete $false 'the graph is complete'
+Assert-Equal @($gv.tasks | ForEach-Object { $_.name }) @('LOAD_ROOT', 'LOAD_A', 'LOAD_B', 'LOAD_C', 'LOAD_FINAL') 'the tasks are in order, the finalizer last'
+Assert-Equal @($gv.tasks[3].after) @('LOAD_A', 'LOAD_B') 'predecessors are arrays'
+Assert-Equal $gv.tasks[2].parameters.USER_TASK_TIMEOUT_MS '1000' 'parameters are an object'
+Assert-Equal @($gv.tasks[1].parameters.psobject.Properties).Count 0 'and an empty one when there are none'
+Assert-Equal @($a.Json.problems).Count 0 'no problems'
+$one = Invoke-Engine 'import' (ConvertTo-Request (New-Doc @((T 'R'), (T 'S')))) (New-Mock)
+Assert-Equal $one.Status 'ok' 'a graph with problems is still imported'
+Assert-True (@($one.Json.problems | ForEach-Object { $_.code }) -contains 'several-roots') 'with its problems'
+Assert-Equal $one.Json.graph.state 'suspended' 'a graph whose root says nothing is suspended'
+$over = Invoke-Engine 'import' @{ doc = (ConvertTo-B64 (ConvertTo-Js (Copy-Doc $base.Doc))); database = 'PROD'; schema = 'LIVE'; warehouse = 'BIG' } (New-Mock)
+Assert-Equal $over.Json.graph.database 'PROD' 'import takes the database override'
+Assert-Equal $over.Json.graph.schema 'LIVE' 'and the schema'
+Assert-Equal $over.Json.graph.tasks[0].warehouse 'BIG' 'and the warehouse'
+$files = @{ 'a.sql' = (ConvertTo-B64 "SELECT 7`n") }
+$fd = New-Doc @([ordered]@{ name = 'R'; schedule = '1 MINUTE'; definitionFile = 'a.sql' })
+$a = Invoke-Engine 'import' @{ doc = (ConvertTo-B64 (ConvertTo-Js $fd)); files = $files } (New-Mock)
+Assert-Equal $a.Json.graph.tasks[0].definition 'SELECT 7' 'import reads a definitionFile from files'
+$a = Invoke-Engine 'import' @{ doc = (ConvertTo-B64 '{"tasks":[{"name":"X","definiton":"oops"}]}') } (New-Mock)
+Assert-True ($a.Status -eq 'error' -and $a.Texts[0] -match "unknown field 'definiton'") 'an unknown field is STATUS error with the message'
+$a = Invoke-Engine 'import' @{ doc = (ConvertTo-B64 '{"name":"x"}') } (New-Mock)
+Assert-True ($a.Status -eq 'error' -and $a.Texts[0] -match 'no "tasks"') 'a document with no tasks is STATUS error'
+$a = Invoke-Engine 'import' @{} (New-Mock)
+Assert-Equal $a.Status 'error' 'a request with no document is STATUS error'
 
 Write-Host 'View (the data of the static viewer)'
 $m = New-LoadMock

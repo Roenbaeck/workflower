@@ -21,7 +21,7 @@ or by this one. Workflower keeps nothing in Snowflake. It reads the tasks with `
 ## Requirements
 
 - **Windows**: Windows PowerShell 5.1 or later. Nothing else has to be installed.
-- **macOS and Linux**: a POSIX shell, the usual tools (`sed`, `tr`, `grep`, `base64`) and the Snowflake CLI. Nothing else; see
+- **macOS and Linux**: a POSIX shell, the usual tools (`sed`, `tr`, `grep`, `base64`) and the Snowflake CLI; Python 3.7 or later (no packages) for the interactive page. See
   [macOS and Linux](#macos-and-linux).
 - A way to Snowflake, either of
   - the SQL REST API with a token (a [programmatic access token](https://docs.snowflake.com/en/user-guide/programmatic-access-tokens),
@@ -61,6 +61,7 @@ unix/workflower apply   -c default graphs/ETL.LOAD.LOAD_ROOT.json     # asks, th
 unix/workflower plan    -c default graphs/ETL.LOAD.LOAD_ROOT.json -d ETL_PROD --warehouse PROD_WH   # the same file for production
 unix/workflower resume  -c default -d ETL -s LOAD -r LOAD_ROOT        # also suspend, run, retry
 unix/workflower runs    -c default -d ETL -s LOAD -r LOAD_ROOT --hours 48
+unix/workflower ui      -c default                                    # the interactive page, as on Windows (needs Python 3.7 or later)
 unix/workflower view    -c default -d ETL -s LOAD                     # a read-only page of the graphs and their runs, opened in the browser
 unix/workflower help
 ```
@@ -74,12 +75,19 @@ sends to Snowflake as an anonymous procedure (`WITH wf AS PROCEDURE ... CALL wf(
 with the rights of your role. The script sends the request through `snow sql` and shows the answer (the protocol is in
 `unix/PROTOCOL.md`). So the account must allow JavaScript procedures, as accounts do by default.
 
-What differs from Windows: there is no editing page, since a page that edits needs a local server, which a shell script cannot be.
-`view` gives the same canvas, inspector and run history as a static, read-only page (a folder with the page and a `data.js`; nothing is
-sent anywhere). To change a graph, edit its file and `plan` and `apply` it.
+**The interactive page** is the same page as on Windows. A page that edits needs a local server, which a shell script cannot be, so
+`unix/workflower ui` starts `unix/server.py`, which needs only Python 3.7 or later and no packages (macOS: `xcode-select --install` or
+`brew install python`; Linux: your package manager). It serves the page on `127.0.0.1` with the same protections as the Windows server (a
+secret in every call, other hosts refused, nothing loaded from outside), and does what the page asks through the same engine and the
+Snowflake CLI, so the connection stays in your `snow` profile. Each action is one call of `snow`, so it answers in a second or two where
+the Windows version answers at once; checking a graph after every edit waits for the same.
+
+`view` is the lighter way: the same canvas, inspector and run history as a static, read-only page (a folder with the page and a
+`data.js`; nothing is sent anywhere), which needs no Python.
 
 What has been checked: the shell script's own work on Linux and macOS in CI (`unix/tests/test-shell.sh`, with a canned `snow`, which
-includes the differences between GNU and BSD `base64`); the engine under an ES5 interpreter (249 checks) and against the PowerShell module
+includes the differences between GNU and BSD `base64`); the Python server in CI on both (`unix/tests/test_server.py`: the real server,
+the real engine on Node, and a stand-in for `snow` with the demo graphs; it has not been run on a machine of mine, only there); the engine under an ES5 interpreter (249 checks) and against the PowerShell module
 (506 assertions over 60 cases); and the engine in Snowflake (108 checks) and the whole script and engine against a real account through
 a stand-in for `snow` that sends the same file through the REST API. **What has not been run is the script with the real Snowflake CLI**:
 the options it passes (`snow sql --enable-templating NONE --format JSON -f <file>`, `-c`, `--role`, `--warehouse`) are the ones that the
@@ -199,7 +207,7 @@ workflower.ps1            the interface (Windows)
 Workflower/               the module (Public: the commands; Private: the model, the connection, the JSON)
 Workflower/ui/            the page (HTML, CSS, JavaScript; nothing is loaded from outside)
 tests/                    Test-Offline.ps1, Test-Api.ps1, Test-Ui.ps1, Test-Live.ps1
-unix/                     macOS and Linux: workflower (the script), engine.js (the logic, run in Snowflake), PROTOCOL.md, tests/
+unix/                     macOS and Linux: workflower (the script), server.py (the interactive page), engine.js (the logic, run in Snowflake), PROTOCOL.md, tests/
 ```
 
 The first version of this tool kept workflows and run logs in an Anchor-modelled schema in Snowflake and rendered tasks with

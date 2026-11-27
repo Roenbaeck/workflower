@@ -139,6 +139,13 @@ check 'view without data from the engine fails' 2 "$code"
 run view
 check 'view needs a database' 64 "$code"
 
+echo 'UI'
+WORKFLOWER_PYTHON=/nonexistent/python3 run ui
+check 'ui without Python is refused' 64 "$code"
+check 'and says what to do' 'yes' "$(grep -q 'Python 3.7' "$work/err" && echo yes || echo no)"
+WORKFLOWER_PYTHON=sh run ui --port abc
+check 'a port must be a number' 64 "$code"
+
 echo 'snow fails'
 export CANNED_FAIL=1
 run graphs -d DB

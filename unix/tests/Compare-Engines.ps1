@@ -188,11 +188,11 @@ function Compare-Case {
     $psPlan = Compare-TaskGraph $graph -Session $null -Actual $actual
     Assert-Equal $plan.Status 'ok' 'the engine makes a plan'
     Assert-Equal $plan.Steps @($psPlan.Steps).Count 'the number of steps (STEPS)'
-    Assert-SameLines (Get-StepLines $psPlan.Steps) (Get-StepLines @($plan.Json.steps | ForEach-Object { [pscustomobject]@{ Phase = $_.phase; Task = $_.task; Sql = $_.sql; Reason = $_.reason } })) 'the steps: order, phase, task, SQL and reason'
-    Assert-Equal @($plan.Json.added) @($psPlan.Added) 'the added tasks'
-    Assert-Equal @($plan.Json.removed) @($psPlan.Removed) 'the removed tasks'
-    Assert-Equal @($plan.Json.changed) @($psPlan.Changed) 'the changed tasks'
-    Assert-Equal $plan.Json.exists $psPlan.Exists 'whether it is installed'
+    Assert-SameLines (Get-StepLines $psPlan.Steps) (Get-StepLines @($plan.Json.plan.steps | ForEach-Object { [pscustomobject]@{ Phase = $_.phase; Task = $_.task; Sql = $_.sql; Reason = $_.reason } })) 'the steps: order, phase, task, SQL and reason'
+    Assert-Equal @($plan.Json.plan.added) @($psPlan.Added) 'the added tasks'
+    Assert-Equal @($plan.Json.plan.removed) @($psPlan.Removed) 'the removed tasks'
+    Assert-Equal @($plan.Json.plan.changed) @($psPlan.Changed) 'the changed tasks'
+    Assert-Equal $plan.Json.plan.exists $psPlan.Exists 'whether it is installed'
 }
 
 # ---------------------------------------------------------------------------------------------------------------------------
