@@ -1,376 +1,165 @@
-<center><img src="webapp/android-chrome-192x192.png" alt="Workflower icon" width="96" /></center>
+<center><img src="Workflower/ui/android-chrome-192x192.png" alt="Workflower icon" width="96" /></center>
 
 # Workflower
 
-Sisula for Snowflake: a template renderer, deployment surface, and workflow editor for
-generating and managing Snowflake task graphs from JSON workflow definitions.
+Read, check, compare, change and run **any** Snowflake task graph: one that was written by hand, by another tool, by an agent,
+or by this one. Workflower keeps nothing in Snowflake. It reads the tasks with `SHOW TASKS`, and what it writes are ordinary
+`CREATE TASK` and `ALTER TASK` statements.
 
-![Workflow Editor screenshot](docs/workflow-editor.png)
-
-## What This Repo Contains
-
-- A Snowflake implementation of the Sisula templating engine, exposed through the
-  `SISULATE` function and helper procedures.
-- A task-graph template flow that renders workflow JSON into Snowflake `CREATE TASK` SQL.
-- Metadata deployment SQL for logging, configuration storage, and workflow support tables.
-- A browser-based workflow editor, served by a small PowerShell HTTP server.
+- **Read** the graphs of a schema, a database or the account into one model, with their state, compute, schedule, conditions,
+  parameters and dependencies, including finalizers.
+- **Check** a graph against what Snowflake enforces (cycles, two roots, a schedule on a child, a missing predecessor, the limits
+  of 1,000 tasks, 100 children and 100 predecessors, a finalizer that does not finalize the root, a root that cannot be resumed)
+  before anything is sent.
+- **Compare** a wanted graph with the installed one and get the steps that turn one into the other, in the order that Snowflake
+  needs, before anything is changed. A graph that is already as wanted needs no steps.
+- **Write** graphs as SQL, or as JSON files that belong in git, and install a file in another database or with another warehouse.
+- **Operate**: start and stop a graph in the right order, run it, retry the last run, and see its runs, task by task, with the
+  errors.
+- **See and edit** all of it in a browser, on your own machine, with the plan shown before it is applied.
 
 ## Requirements
 
-- **Snowflake CLI** (`snow`), with a configured connection profile
-- **Windows PowerShell 5.1** or later
-- Node.js 18+ to run the JavaScript regression tests or regenerate the metadata model
+- Windows PowerShell 5.1 or later. Nothing else has to be installed.
+- A way to Snowflake, either of
+  - the SQL REST API with a token (a [programmatic access token](https://docs.snowflake.com/en/user-guide/programmatic-access-tokens),
+    an OAuth token or a key-pair JWT), or
+  - the [Snowflake CLI](https://docs.snowflake.com/en/developer-guide/snowflake-cli/index) (`snow`) with a connection
+    profile, which is what to use for single sign-on.
+- A role that can see the tasks (`SHOW TASKS` lists only what the role can see; a graph with a hidden task is marked
+  incomplete), and for changes the privileges that tasks need: `CREATE TASK` and `EXECUTE TASK`, and `EXECUTE MANAGED TASK` for
+  serverless tasks. Run history needs `MONITOR` on the tasks, or to own them.
 
-There is no Python or bash dependency. Everything runs with what a Windows Server
-installation provides plus the Snowflake CLI.
+## The interface
 
-## Core Docs
-
-- [Sisula language reference](docs/SISULA.md) (a pinned copy of the reference in the sisula repository)
-- [Workflow JSON format](docs/WorkflowFormat.md)
-- [PowerShell backend architecture](docs/PowerShellArchitecture.md)
-
-## Repo Layout
-
-- `sql/`: deploys the Snowflake Sisula engine.
-- `tools/`: `sync-sisula.ps1`, which updates the vendored Sisula engine, language reference and
-  conformance fixtures from the sisula repository.
-- `metadata/`: the anchor model and its generator, plus knot values, logging,
-  configuration, stage, import and retention procedures.
-- `webapp/`: the editor UI, the PowerShell server and handlers, and browser assets.
-  `webapp/sisula.js` is the Sisula engine, a pinned copy that is not edited here
-  (see [The Sisula engine](#the-sisula-engine)).
-- `webapp/templates/`: template sources deployed into Snowflake metadata storage; also used
-  for the browser's offline preview.
-- `tests/`: the JavaScript and SQL test suites. `tests/sisula-fixtures/` are the shared
-  Sisula conformance fixtures, also a pinned copy.
-- `examples/`: example workflow bindings.
-
-## The metadata model
-
-Everything the metadata schema stores is anchor modelled. `metadata/MetadataModel.xml` is
-the source of truth and `metadata/Install_2_MetadataModel.sql` is generated from it by the
-[Anchor Modeling](https://www.anchormodeling.com/modeler/test) generator, targeting Snowflake.
-
-Regenerate the installation script without opening the modeler:
-
-```
-npm run generate-model
+```powershell
+.\workflower.ps1 -Connection default                         # the Snowflake CLI, a connection profile
+.\workflower.ps1 -Account myorg-myaccount -TokenFile ~\.snowflake\pat.txt -Warehouse ETL_WH -Role SYSADMIN
+.\workflower.ps1 -Demo                                      # invented graphs, no account
 ```
 
-The bundled `metadata/anchor-generator-snowflake.js` is built from Anchor's
-`tools/build-portable-generator.ps1`; it runs locally without the original
-Sisulator, a network connection or XML packages. Rebuild that file from an
-Anchor checkout to update the generator. Use `-- --output <path>` to write
-elsewhere. The generated objects use quoted, case-sensitive identifiers;
-references to them must use the exact spelling and double quotes as well.
+It opens a page on this machine (`127.0.0.1`, port 8765; `-Port` changes it); Ctrl+C stops it. The token or connection stays
+in the PowerShell process and never reaches the browser, every call carries a secret that the process made up when it started,
+and a request for any other host is refused.
 
-Because the generated DDL uses `CREATE TABLE IF NOT EXISTS`, changing an existing
-attribute's temporalization requires dropping its table before redeploying; the generator
-will not alter one in place.
+Choose a database and a schema, and the graphs in it are listed. A graph is drawn left to right, with the state of every task
+and the outcome of its last run. Select a task to edit it. **Plan changes** shows exactly what will be sent, step by step;
+**Apply** runs it. Nothing changes before that.
 
-### Runs are recorded
+## The commands
 
-Every task execution records when it started, when it finished, its outcome and any error,
-and the generated task body has an exception handler that records a failure and re-raises
-so Snowflake still fails the task. Reporting views answer the questions directly:
+```powershell
+Import-Module .\Workflower\Workflower.psd1
+$s = New-WfSession -Account myorg-myaccount -TokenFile ~\.snowflake\pat.txt -Warehouse ETL_WH -Role SYSADMIN
+# or: $s = New-WfSession -Connection default
+```
 
-| View | Question |
+| | |
 |---|---|
-| `metadata.TaskRuns` | What ran, when, for how long, and did it work? |
-| `metadata.GraphRuns` | Did last night's graph succeed? |
-| `metadata.Lineage` | What did each task read and write, and how many rows? |
-| `metadata.ContainerFlow` | What feeds what — impact analysis |
-| `metadata.Installations` | What was deployed, when, and how did it go? |
+| `Get-TaskGraph $s -Database ETL -Schema LOAD [-Root LOAD_ROOT]` | the graphs; without `-Schema` the database, without `-Database` the account |
+| `Test-TaskGraph $graph` | the problems found: `Severity` (error, warning, info), `Code`, `Message` |
+| `ConvertTo-TaskGraphSql $graph [-AsScript] [-IncludeState]` | the `CREATE TASK` statements, parents first |
+| `Export-TaskGraph $graph -Directory .\graphs [-SplitDefinitions]` | JSON files, one per graph |
+| `Import-TaskGraph .\graphs [-Database X] [-Schema Y] [-Warehouse Z]` | graphs from files, optionally moved |
+| `Compare-TaskGraph $wanted -Session $s` | the plan: ordered steps with SQL and reason, or none |
+| `Publish-TaskGraph $wanted -Session $s [-WhatIf]` | plans, then runs the steps |
+| `Resume-TaskGraph`, `Suspend-TaskGraph`, `Start-TaskGraph [-Retry]` | operate an installed graph |
+| `Get-TaskGraphRun $graph -Session $s [-Hours 24]` | the runs, newest first, each with its tasks |
+| `Start-Workflower -Session $s` | the interface |
 
-```sql
-SELECT WORKFLOW, STATUS, TASKS, FAILED, STARTED_AT
-FROM metadata.GraphRuns ORDER BY STARTED_AT DESC LIMIT 10;
+Back up every graph in a schema, change one in an editor, and look at what would change:
+
+```powershell
+Get-TaskGraph $s -Database ETL -Schema LOAD | Export-TaskGraph -Directory .\graphs -SplitDefinitions
+# edit .\graphs\ETL.LOAD.LOAD_ROOT.d\LOAD_A.sql, then
+Import-TaskGraph .\graphs\ETL.LOAD.LOAD_ROOT.json | Publish-TaskGraph -Session $s -WhatIf
+Import-TaskGraph .\graphs\ETL.LOAD.LOAD_ROOT.json | Publish-TaskGraph -Session $s
 ```
 
-A run with no status is still running or died without being able to report. The editor's
-**Runs** tab shows the same history for the open workflow.
+Promote the same file to production:
 
-### Environments
+```powershell
+Import-TaskGraph .\graphs\ETL.LOAD.LOAD_ROOT.json -Database ETL_PROD -Warehouse PROD_WH | Publish-TaskGraph -Session $p
+```
 
-The same workflow installs into dev and production without being edited. An environment is
-a configuration whose keys are merged over the workflow's own at render time:
+### How a plan is ordered
+
+Snowflake refuses to change a graph whose root is not suspended ("Unable to update graph ... since that root task is not
+suspended") and has no transaction for DDL, so a plan is
+a list of steps that are run one by one, and the first that fails stops the rest:
+
+1. **suspend** the root, if the graph is started and something has to change;
+2. **unlink**: dependencies that go are removed (`ALTER TASK ... REMOVE AFTER`, `UNSET FINALIZE`);
+3. **drop** the tasks that go, children first;
+4. **create** the new tasks, parents first;
+5. **alter** the changed ones: `SET` and `UNSET` for properties and parameters, `MODIFY AS` for the SQL, `MODIFY WHEN` or
+   `REMOVE WHEN` for the condition, `ADD AFTER`, `SET FINALIZE`;
+6. **resume** (children before the root) what is to be started, or **suspend** what is to be stopped.
+
+If a step fails, the error says which steps were done; run the command again to continue from there, since the plan is made
+from what is installed.
+
+A graph is either on or off: the state of the root decides, unless a task says otherwise in its own `state`. A new graph is made
+suspended unless its tasks say `started`.
+
+### A graph file
 
 ```json
-{ "NAME": "production", "WAREHOUSE": "ETL_WH", "TASK_TIMEOUT": 7200000, "MAX_FAILURES": 1 }
+{
+  "format": "workflower-graph",
+  "version": 1,
+  "database": "ETL",
+  "schema": "LOAD",
+  "tasks": [
+    { "name": "LOAD_ROOT", "schedule": "USING CRON 0 2 * * * Europe/Stockholm", "warehouse": "ETL_WH",
+      "parameters": { "USER_TASK_TIMEOUT_MS": "3600000" }, "state": "started", "definition": "CALL load_start()" },
+    { "name": "LOAD_A", "after": ["LOAD_ROOT"], "warehouse": "ETL_WH", "definitionFile": "ETL.LOAD.LOAD_ROOT.d/LOAD_A.sql" },
+    { "name": "LOAD_DONE", "finalize": "LOAD_ROOT", "condition": "SYSTEM$STREAM_HAS_DATA('S')", "definition": "CALL notify()" }
+  ]
+}
 ```
 
-**More → Environments…** creates, edits and deletes them; the picker beside Install chooses
-which to install with. Environment keys win over the workflow's, and the whole environment
-is also exposed to templates as `$ENV.<key>$`.
+Per task: `name`, `definition` (or `definitionFile`, a path relative to the file), `after` (names of predecessors), `finalize`
+(the root, for a finalizer), `schedule`, `warehouse`, `condition` (the `WHEN` expression), `allowOverlappingExecution`,
+`errorIntegration`, `comment`, `config`, `parameters` (task and session parameters set on the task, by name) and `state`
+(`started` or `suspended`; left out, a task keeps the state it has). A field that is not in the list is refused, so that a
+misspelling is not ignored. All tasks of a graph are in one schema, which Snowflake requires.
 
-An environment is edited as JSON rather than through a form, because its keys are whatever
-top-level fields a workflow understands — there is no fixed set to lay out. Renaming one
-retires the old configuration in the same call, as a workflow rename does.
+**Names are exact.** They are written as Snowflake stores them, upper case unless the task was made with a quoted name, and
+every identifier is written quoted, so a file made by `Export-TaskGraph` always means what it says.
 
-Changing where something runs is then a two-step loop that never touches the workflow:
+## What was checked, and against what
 
-1. `PUT /api/environments` with the same `NAME` — it upserts in place, keeping its `CF_ID`.
-2. Reinstall the workflow with that environment selected.
+- 81 tests need no Snowflake (`tests\Test-Offline.ps1`): fixtures shaped like `SHOW TASKS`, validation, rendering, the files
+  and every kind of plan.
+- 30 tests run the web server and its API over HTTP with the demo session (`tests\Test-Api.ps1`).
+- 41 tests run against a real account (`tests\Test-Live.ps1`, in a scratch database that it drops): every statement of the
+  plan is accepted, a graph that was installed reads back as what was wanted so that the next plan is empty, a graph made by
+  hand with a name with a space, a cron schedule in a time zone, a serverless task, a finalizer and a body in `BEGIN ... END`
+  is read, copied and reinstalled unchanged, a started graph is changed and started again, a graph is suspended and run and its
+  run is found in the history.
 
-The rendered DDL picks up the new values and the stored workflow is unchanged, so the same
-definition can be pointed at a different warehouse, timeout or failure cap per environment.
-Because a task's warehouse comes from its DDL rather than from your connection, moving
-existing tasks to another warehouse means reinstalling them — which is exactly what this
-loop is for.
+  ```powershell
+  .\tests\Test-Live.ps1 -Account myorg-myaccount -TokenFile ~\.snowflake\pat.txt -Warehouse WH -Role SYSADMIN
+  ```
 
-### Keeping credits down
+Things that Snowflake does and that are good to know:
 
-Two levers, both in [docs/WorkflowFormat.md](docs/WorkflowFormat.md):
+- A root with no schedule and no condition cannot be resumed (`Test-TaskGraph` says so), and a graph can still be run by hand.
+- A `WHEN` condition allows only a few functions (`SYSTEM$STREAM_HAS_DATA`, `SYSTEM$GET_PREDECESSOR_RETURN_VALUE`,
+  `SYSTEM$PREDECESSORS_STATE`, `SYSTEM$TASK_COMPLETION_STATE`); Snowflake refuses the rest when the plan is applied.
+- The SQL REST API returns times as seconds since 1970; Workflower turns them into ISO text.
+- A programmatic access token may need a network policy, or an authentication policy that does not require one.
 
-**Conditions.** A task's `stream` or `condition` renders a `WHEN` clause, evaluated in the
-cloud services layer. When it is false the warehouse never resumes and the run costs
-nothing, so a graph scheduled every few minutes that usually has nothing to do is close to
-free. Available on any task; on the root it gates the whole graph.
-
-**Serverless tasks.** Set `SERVERLESS` with a `TASK_SIZE` instead of a `WAREHOUSE`. Billed
-per second with no one-minute minimum and no idle time, which is usually cheaper for short
-or infrequent work. Needs the `EXECUTE MANAGED TASK` privilege granted to the task owner's
-role, the same shape of account-level grant as `EXECUTE TASK`.
-
-Otherwise, the warehouse's `AUTO_SUSPEND` dominates: every resume bills a 60-second minimum
-and the warehouse keeps billing while idle. A task graph doing five seconds of work on a
-warehouse with a five-minute auto-suspend pays for about 305 seconds.
-
-### Validation
-
-A graph is validated before anything is rendered: duplicate names, predecessors that do
-not exist, more than one root, cycles, a schedule on a non-root task, and steps missing
-required fields. An invalid workflow is refused with the list of problems rather than
-discovered halfway through applying the DDL. **More → Validate graph** checks on demand.
-
-### Operating an installed workflow
-
-**More → Task states…** reports what each task is actually doing, and offers Resume,
-Suspend and Run now. Resume enables children before the root and suspend does the reverse,
-so a graph is never able to fire with a partially enabled body.
-
-`Run now` needs the `EXECUTE TASK` privilege granted to the task owner's role; without it
-the reason is reported rather than failing silently.
-
-### Installations are recorded
-
-Every render creates an `IL_Installation`, tied to the configuration it came from and the
-template applied, holding the run id, the rendered DDL, when it was rendered, its outcome
-and any error. The record outlives the staged file, so pruning the stage does not lose the
-audit trail:
-
-```sql
-SELECT LEFT(il."IL_RID_Installation_RunId", 8) AS RUN,
-       cf."CF_NAM_Configuration_Name"          AS WORKFLOW,
-       COALESCE(il."IL_STA_ILS_InstallationStatus", 'not reported') AS STATUS,
-       il."IL_RAT_Installation_RenderedAt"     AS RENDERED_AT
-FROM metadata."lIL_Installation" il
-LEFT JOIN metadata."IL_installs_CF_configuration" t ON t."IL_ID_installs" = il.IL_ID
-LEFT JOIN metadata."lCF_Configuration" cf ON cf.CF_ID = t."CF_ID_configuration"
-ORDER BY il."IL_RAT_Installation_RenderedAt" DESC;
-```
-
-An installation with no status was rendered but never reported back on. `Failed` means
-partially applied, since execution stops at the first failing statement and leaves earlier
-ones in place.
-
-## Quick Start
-
-### 1. Deploy the Sisula engine
+## Layout
 
 ```
-.\deploy.ps1 <connection_name>
+workflower.ps1            the interface
+Workflower/               the module (Public: the commands; Private: the model, the connection, the JSON)
+Workflower/ui/            the page (HTML, CSS, JavaScript; nothing is loaded from outside)
+tests/                    Test-Offline.ps1, Test-Api.ps1, Test-Live.ps1
 ```
 
-### 2. Deploy metadata support
-
-```
-.\deploy_metadata.ps1 <connection_name>
-```
-
-This creates the metadata model, the `WORKFLOWER` stage, the file formats, the logging and
-configuration procedures, and seeds the `CreateTaskGraph` template.
-
-### 3. Start the editor
-
-```
-.\webapp\run.ps1 <connection_name>
-```
-
-Serves the editor on `http://localhost:8000/`.
-
-The divider between the task graph and the inspector is draggable — double-click to reset,
-or focus it and use the arrow keys (`Shift` for larger steps, `Home` to reset). The width is
-remembered per browser, and the graph always keeps a usable strip however far you drag.
-
-In the graph, the scroll wheel zooms on the point under the pointer, a trackpad pinch does
-the same, `Shift` with the wheel scrolls sideways, and dragging the background pans.
-
-### 4. Render or deploy workflow SQL from JSON
-
-```
-.\install.ps1 <connection_name> .\examples -DryRun
-.\install.ps1 <connection_name> .\examples
-```
-
-Both use the **deployed** template in Snowflake metadata storage, so deploy metadata
-support first. The installer writes the rendered SQL locally before executing and stops on
-the first failure. It does not save its input as a configuration; save it through the
-editor if you want it in the workflow library.
-
-### 5. Import existing Snowflake tasks
-
-```
-.\read.ps1 <connection_name> .\imported -Schema MY_DATABASE.MY_SCHEMA
-.\read.ps1 <connection_name> .\imported -Schema MY_DATABASE.MY_SCHEMA -Root ROOT_TASK
-```
-
-Read-only: it uses `SHOW TASKS` and `GET_DDL` and never alters a task. It creates one JSON
-file per graph and refuses to overwrite existing files. Snowflake only exposes tasks
-visible to the current role, so an entirely hidden child cannot be discovered and makes the
-export fail rather than emit a partial graph.
-
-Use **Import workflow JSON** in the editor to open an exported file. Native tasks run
-directly without Workflower's logging wrappers; their `GET_DDL` header is preserved and
-shown read-only. Imports default to **suspended**, with the original state kept as
-metadata. Referenced procedures, tables, streams, integrations and grants are not exported
-or reconstructed.
-
-### 6. Run tests
-
-```
-.\tests\test_all.ps1 <connection_name>
-npm test
-```
-
-`tests\test_all.ps1` runs the SQL suite in `tests/sql/`. Most of those files render
-templates and print the result for inspection; `tests/sql/test_escaping.sql` asserts,
-reporting a `STATUS` column that the runner checks. `npm test` runs the JavaScript suites,
-which need Node and so are a development-machine check rather than part of deployment. They
-include a conformance test that runs the vendored engine through every shared Sisula fixture
-and checks that none of the vendored files has been edited. The second of those checks needs
-neither Node nor Git: `.\tools\sync-sisula.ps1 -Check`.
-
-## Architecture
-
-The browser talks to a local PowerShell server, which shells out to the Snowflake CLI.
-
-**No user data is ever interpolated into SQL.** The Snowflake CLI has no bind variables, so
-instead of escaping values, payloads travel as staged files and objects are addressed by
-their integer `CF_ID`. The only values that reach SQL from the client are integers and
-GUIDs, both validated at the point of use.
-
-Saving uploads the document to `@metadata.WORKFLOWER/in/<run_id>.json`; Snowflake reads the
-workflow name out of the document and stores the original bytes. Installing renders to
-`@metadata.WORKFLOWER/out/<run_id>.sql` and runs it with `EXECUTE IMMEDIATE FROM`.
-
-All SQL is passed to the CLI through a temporary `.sql` file. `snow sql -q` corrupts dollar
-signs, which matters for a template language built on `$token$` whose procedures are
-delimited by doubled dollars.
-
-Rendered SQL is kept on the stage as an audit trail of exactly what was executed.
-
-### Stage retention
-
-Snowflake has no expiry for staged files — storage lifecycle policies apply to table rows,
-not to stages. `LIST` and `REMOVE` are both rejected inside a stored procedure, so the
-prune cannot be a Snowflake task either. It is a script you schedule:
-
-```
-.\prune.ps1 <connection_name> -WhatIf
-.\prune.ps1 <connection_name>
-```
-
-Defaults keep `out/` for 90 days and `in/` and `export/` for 7. `out/` holds the SQL that
-was actually executed and is the audit trail; `in/` duplicates a configuration already
-stored historized in the metadata model, and `export/` has already been downloaded.
-
-To see what is there before choosing a window:
-
-```sql
-ALTER STAGE metadata.WORKFLOWER REFRESH;
-SELECT AREA, COUNT(*) AS FILES, SUM(BYTES) AS BYTES, MAX(AGE_DAYS) AS OLDEST_DAYS
-FROM metadata.WORKFLOWER_STAGE_FILES GROUP BY AREA;
-```
-
-On the server, schedule `prune.ps1` with Windows Task Scheduler.
-
-### Installation is not atomic
-
-`EXECUTE IMMEDIATE FROM` stops at the first failing statement and **leaves earlier
-statements applied**. Failures are reported with the line Snowflake named and the run id of
-the rendered file, never retried automatically. Inspect Snowflake before retrying.
-
-### Connections
-
-The server has no connection pool and no session of its own. Each operation invokes `snow`,
-which authenticates from the named profile in `~/.snowflake/config.toml`. The editor's
-connection panel reports which user, role, database and warehouse the server is acting as.
-
-For an unattended server, prefer key-pair authentication in the connection profile. See the
-[Snowflake CLI connection documentation](https://docs.snowflake.com/en/developer-guide/snowflake-cli/connecting/configure-connections).
-
-### Security posture
-
-The server binds to `127.0.0.1`, serves only an explicit allowlist of browser assets,
-rejects cross-origin writes, and sets a restrictive CSP. It is a single-user administrative
-tool with no authentication; shared hosting would require an authentication and
-authorization design.
-
-The server handles **one request at a time**, and each one shells out to the Snowflake CLI,
-so concurrent requests from the browser serialise behind each other. That is fine for a
-single-user tool but it means the editor issues its startup calls in sequence rather than
-in parallel.
-
-A non-administrator account may need a URL reservation before it can listen:
-
-```
-netsh http add urlacl url=http://127.0.0.1:8000/ user=DOMAIN\user
-```
-
-## The Sisula engine
-
-The engine is not developed here. `webapp/sisula.js` is a copy of `core/sisula.js` from the
-[sisula repository](https://github.com/Roenbaeck/sisula), the reference renderer, and so are the
-language reference (`docs/SISULA.md`) and the conformance fixtures (`tests/sisula-fixtures/`).
-`webapp/sisula.lock.json` records the sisula commit they came from and the SHA-256 of each file,
-and the tests fail if any of them has been edited. The same file is served to the browser,
-spliced into the `SISULATE` function in Snowflake by `deploy.ps1`, and loaded by the tests.
-
-A newer version is taken when you decide it is safe to:
-
-```
-.\tools\sync-sisula.ps1                  # origin/master of the sibling ..\sisula checkout
-.\tools\sync-sisula.ps1 -Ref <tag|commit>
-.\tools\sync-sisula.ps1 -Check           # only verify the copies against the lock
-```
-
-The script copies the files as committed, not as they are in the working tree, and refuses a
-commit that is not on `origin/master`. Review `git diff`, run `npm test`, commit, and run
-`.\deploy.ps1` so that Snowflake uses the new engine. A newer engine may be stricter about what a
-template may do, and a template stored in Snowflake is checked only when it renders, so try any
-custom templates after an update.
-
-### Writing and installing templates
-
-- Author templates as `.sql` files under `webapp/templates/` to get proper SQL syntax
-  highlighting in VS Code.
-- Install a template into Snowflake with
-  `CALL SP_SISULA_TEMPLATE_CRUD('UPSERT', 'template_name', '$$...$$')`. Templates are stored in
-  the metadata model rather than in a standalone table.
-- `.\deploy_metadata.ps1` seeds `CreateTaskGraph` into the metadata template storage, so that
-  the web UI and the render helpers can use it as soon as the metadata is deployed.
-- Render with `SELECT SISULATE(template, bindings)` or
-  `CALL SP_SISULA_RENDER('template_name', bindings)`.
-
-## Template escaping
-
-Values interpolated into generated SQL must use an escaping token form. See
-[docs/SISULA.md](docs/SISULA.md):
-
-- `$'path'$` renders a quoted SQL string literal.
-- `$|path|$` renders text that is safe on one SQL comment line.
-
-The plain `$path$` form interpolates verbatim and is correct only where the value is
-genuinely SQL, such as a step's `sql` or a native task body.
+The first version of this tool kept workflows and run logs in an Anchor-modelled schema in Snowflake and rendered tasks with
+Sisula templates. That is gone: it could only manage graphs that went through it. It is in the history, at the tag
+`pre-rebuild`.
