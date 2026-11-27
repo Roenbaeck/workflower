@@ -19,7 +19,7 @@ function Test-TaskGraph {
             $problems.Add([pscustomobject]@{ Severity = $severity; Task = $task; Code = $code; Message = $message })
         }
         $tasks = @($Graph.tasks)
-        $names = @{}
+        $names = New-WfMap
         foreach ($t in $tasks) {
             if ($names.ContainsKey($t.name)) { & $add 'error' $t.name 'duplicate-name' ("There are two tasks called '" + $t.name + "'.") }
             $names[$t.name] = $t
@@ -27,7 +27,7 @@ function Test-TaskGraph {
         if ($tasks.Count -eq 0) { & $add 'error' $null 'empty' 'The graph has no tasks.' }
         if ($tasks.Count -gt 1000) { & $add 'error' $null 'too-many-tasks' ('A graph has at most 1,000 tasks; this one has ' + $tasks.Count + '.') }
 
-        $children = @{}
+        $children = New-WfMap
         foreach ($t in $tasks) {
             if (-not ([string]$t.definition).Trim()) { & $add 'error' $t.name 'no-definition' ("Task '" + $t.name + "' has nothing to run (definition).") }
             foreach ($a in @($t.after)) {

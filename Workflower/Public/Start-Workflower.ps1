@@ -135,13 +135,13 @@ function Invoke-WfRoute {
         }
         '/api/databases' {
             $rows = @(Invoke-WfSql $Session 'SHOW DATABASES')
-            return [ordered]@{ databases = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Sort-Object) }
+            return [ordered]@{ databases = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Sort-WfOrdinal) }
         }
         '/api/schemas' {
             $d = & $q 'database'
             if (-not $d) { throw 'Say which database.' }
             $rows = @(Invoke-WfSql $Session ('SHOW SCHEMAS IN DATABASE ' + (ConvertTo-WfIdentifier $d)))
-            return [ordered]@{ schemas = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Where-Object { $_ -ne 'INFORMATION_SCHEMA' } | Sort-Object) }
+            return [ordered]@{ schemas = @($rows | ForEach-Object { [string](Get-WfValue $_ 'name') } | Where-Object { $_ -ne 'INFORMATION_SCHEMA' } | Sort-WfOrdinal) }
         }
         '/api/graphs' {
             $d = & $q 'database'; $s = & $q 'schema'

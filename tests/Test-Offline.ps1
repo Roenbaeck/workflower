@@ -26,6 +26,7 @@ function New-Row {
 }
 
 Write-Host 'Names and literals'
+In-Module { Assert-Equal @('load root', 'LONE', 'LOAD_A', 'LOAD1' | Sort-WfOrdinal) @('LOAD1', 'LOAD_A', 'LONE', 'load root') 'names are sorted ordinally, whatever the culture of the machine' }
 In-Module {
     Assert-Equal (ConvertTo-WfIdentifier 'a"b') '"a""b"' 'a quote in an identifier is doubled'
     Assert-Equal (ConvertTo-WfQualified 'DB' 'My Schema' 'T') '"DB"."My Schema"."T"' 'a qualified name is quoted part by part'
@@ -82,6 +83,7 @@ function T { param([string] $Name, [string[]] $After = @(), [string] $Schedule, 
 function Codes { param($Graph) @(Test-TaskGraph $Graph | ForEach-Object { $_.Code }) }
 Assert-Equal @(Codes (New-G @((T 'R' -Schedule '1 MINUTE'), (T 'A' -After 'R')))) @() 'a good graph has no problems'
 Assert-True ((Codes (New-G @((T 'R'), (T 'R')))) -contains 'duplicate-name') 'two tasks with one name'
+Assert-True ((Codes (New-G @((T 'r' -Schedule '1 MINUTE'), (T 'R' -After 'r')))) -notcontains 'duplicate-name') 'names that differ in case are two tasks (Snowflake names are exact)'
 Assert-True ((Codes (New-G @((T 'R'), (T 'A' -After 'X')))) -contains 'missing-predecessor') 'a predecessor that is not there'
 Assert-True ((Codes (New-G @((T 'R'), (T 'S')))) -contains 'several-roots') 'two roots'
 Assert-True ((Codes (New-G @((T 'R'), (T 'A' -After 'R' -Schedule '1 MINUTE')))) -contains 'schedule-on-child') 'a schedule on a child'
@@ -138,6 +140,9 @@ try {
     Assert-Equal $over.tasks[0].warehouse 'BIG' '-Warehouse replaces the warehouse of a task that has one'
     Set-Content -LiteralPath (Join-Path $dir 'bad.json') -Value '{"tasks":[{"name":"X","definiton":"oops"}]}'
     Assert-Throws { Import-TaskGraph (Join-Path $dir 'bad.json') } 'unknown field .definiton' 'a misspelt field is refused'
+    Set-Content -LiteralPath (Join-Path $dir 'one.json') -Value '{"tasks":[{"name":"X","definition":"SELECT 1","parameters":{"user_task_timeout_ms":"1000"}}]}'
+    $one = Import-TaskGraph (Join-Path $dir 'one.json')
+    Assert-Equal @($one.tasks[0].parameters.Keys) @('USER_TASK_TIMEOUT_MS') 'a task with exactly one parameter imports, the name in upper case'
 } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
 
 Write-Host 'The plan'
